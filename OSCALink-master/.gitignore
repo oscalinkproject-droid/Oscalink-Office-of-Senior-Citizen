@@ -1,0 +1,72 @@
+# OSCALink Specific Exclusions
+OSCALink/stitch/
+*.bat
+error.txt
+output.txt
+tsx_files.txt
+tmp_pdf_text.txt
+tmp_read_pdfs.py
+test_app.py
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js
+web/.next/
+web/out/
+web/scripts/notion-upload.js
+
+# Production
+web/build/
+
+# Misc
+.DS_Store
+*.pem
+mobile/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files are tracked for private repo collaboration
+# web/.env*
+!web/.env.example
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+web/next-env.d.ts
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Agents
+.agents/
+skills/
+skills-lock.json
+
+# Internal docs (Un-ignored for collaboration)
+# docs/COORDINATION.md
+# docs/IMPLEMENTATION_PLAN.md
+# docs/landing_page_directive.md
+# docs/opencode_directive.md
+# docs/oscalink_role_map.md
+# docs/oscalink_testing_protocol.md
+# docs/pages contains.md
+# docs/sure.md
+# docs/opencode_staff_provisioning.md
+
+# Environment variables
+web/.env.local

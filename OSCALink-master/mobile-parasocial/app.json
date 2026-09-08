@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Para Social",
+    "slug": "para-social",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "para-social",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#006837"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.oscalink.barangay"
+    },
+    "android": {
+      "package": "com.oscalink.barangay",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#006837"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Para Social to access your photos to update your profile picture."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

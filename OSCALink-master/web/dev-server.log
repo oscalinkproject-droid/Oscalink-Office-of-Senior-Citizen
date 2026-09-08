@@ -1,0 +1,86 @@
+
+> web@0.1.0 dev
+> next dev -H 0.0.0.0
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+- Environments: .env.local, .env
+✓ Ready in 424ms
+
+ GET /login 200 in 421ms (next.js: 155ms, proxy.ts: 72ms, application-code: 195ms)
+ GET /login 200 in 44ms (next.js: 3ms, proxy.ts: 7ms, application-code: 34ms)
+ GET /dashboard 200 in 2.7s (next.js: 96ms, proxy.ts: 896ms, application-code: 1727ms)
+ GET /requests 200 in 1025ms (next.js: 676ms, proxy.ts: 276ms, application-code: 74ms)
+ GET /login 200 in 46ms (next.js: 4ms, proxy.ts: 5ms, application-code: 37ms)
+ GET /dashboard 200 in 1267ms (next.js: 4ms, proxy.ts: 239ms, application-code: 1024ms)
+ GET /requests 200 in 488ms (next.js: 3ms, proxy.ts: 445ms, application-code: 40ms)
+ GET /complaints 200 in 1046ms (next.js: 445ms, proxy.ts: 374ms, application-code: 227ms)
+ GET /settings 200 in 666ms (next.js: 437ms, proxy.ts: 165ms, application-code: 64ms)
+ GET /dashboard 200 in 2.0s (next.js: 6ms, proxy.ts: 463ms, application-code: 1564ms)
+ GET /timeline/appointments 200 in 1083ms (next.js: 776ms, proxy.ts: 248ms, application-code: 60ms)
+[browser] In HTML, <tr> cannot be a child of <div>.
+This will cause a hydration error.
+
+  ...
+    <motion.div initial="initial" animate="animate" exit="exit" variants={{initial:{...}, ...}} className={undefined}>
+      <div className={undefined} style={{opacity:0, ...}} ref={function useMotionRef.useCallback}>
+        <div className="flex flex-...">
+          <div>
+          <div>
+          <AnimatedList className="bg-surface...">
+            <motion.div initial="initial" animate="animate" variants={{initial:{}, ...}} className="bg-surface...">
+              <div className="bg-surface..." style={{}} ref={function useMotionRef.useCallback}>
+                <div className="overflow-x...">
+                  <table className="w-full tex...">
+                    <thead>
+                    <tbody className="divide-y d...">
+                      <AnimatedListItem>
+                        <motion.div variants={{initial:{...}, ...}} className={undefined}>
+>                         <div
+>                           className={undefined}
+>                           style={{opacity:0,transform:"translateY..."}}
+>                           ref={function useMotionRef.useCallback}
+>                         >
+>                           <tr className="hover:bg-white/[0.02] transition-colors">
+                      ...
+          ...
+ 
+[browser] <div> cannot contain a nested <tr>.
+See this log for the ancestor stack trace. 
+[browser] In HTML, <div> cannot be a child of <tbody>.
+This will cause a hydration error.
+
+  ...
+    <ClientPageRoot Component={function AppointmentsPage} serverProvidedParams={{...}}>
+      <AppointmentsPage params={Promise} searchParams={Promise}>
+        <PageTransition>
+          <LazyMotion features={{...}}>
+            <motion.div initial="initial" animate="animate" exit="exit" variants={{initial:{...}, ...}} ...>
+              <div className={undefined} style={{opacity:0, ...}} ref={function useMotionRef.useCallback}>
+                <div className="flex flex-...">
+                  <div>
+                  <div>
+                  <AnimatedList className="bg-surface...">
+                    <motion.div initial="initial" animate="animate" variants={{initial:{}, ...}} ...>
+                      <div className="bg-surface..." style={{}} ref={function useMotionRef.useCallback}>
+                        <div className="overflow-x...">
+                          <table className="w-full tex...">
+                            <thead>
+>                           <tbody className="divide-y divide-white/[0.03]">
+                              <AnimatedListItem>
+                                <motion.div variants={{initial:{...}, ...}} className={undefined}>
+>                                 <div
+>                                   className={undefined}
+>                                   style={{opacity:0,transform:"translateY..."}}
+>                                   ref={function useMotionRef.useCallback}
+>                                 >
+                              ...
+                  ...
+ 
+[browser] <tbody> cannot contain a nested <div>.
+See this log for the ancestor stack trace. 
+ GET /login 200 in 314ms (next.js: 4ms, proxy.ts: 273ms, application-code: 37ms)
+ GET /dashboard 200 in 1214ms (next.js: 4ms, proxy.ts: 158ms, application-code: 1052ms)
+ GET /requests 200 in 287ms (next.js: 3ms, proxy.ts: 246ms, application-code: 37ms)
+ GET /complaints 200 in 490ms (next.js: 4ms, proxy.ts: 282ms, application-code: 204ms)
