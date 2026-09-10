@@ -98,6 +98,20 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 -- ==========================================
+-- 3.5 HELPER FUNCTION: Get user's JWT barangay
+-- ==========================================
+
+CREATE OR REPLACE FUNCTION public.get_user_barangay()
+RETURNS TEXT AS $$
+BEGIN
+  RETURN COALESCE(
+    current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'barangay',
+    NULL
+  );
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- ==========================================
 -- 4. SENIORS POLICIES
 -- ==========================================
 
@@ -155,6 +169,7 @@ DROP POLICY IF EXISTS "staff_read_assistance" ON assistance_requests;
 DROP POLICY IF EXISTS "staff_insert_assistance" ON assistance_requests;
 DROP POLICY IF EXISTS "admin_full_access_assistance" ON assistance_requests;
 
+DROP POLICY IF EXISTS "admin_full_access_assistance" ON assistance_requests;
 CREATE POLICY "admin_full_access_assistance" ON assistance_requests
   FOR ALL
   USING (
@@ -163,6 +178,7 @@ CREATE POLICY "admin_full_access_assistance" ON assistance_requests
   );
 
 -- Sector-locked staff: read/update within barangay
+DROP POLICY IF EXISTS "sector_staff_read_assistance" ON assistance_requests;
 CREATE POLICY "sector_staff_read_assistance" ON assistance_requests
   FOR SELECT
   USING (
@@ -171,6 +187,7 @@ CREATE POLICY "sector_staff_read_assistance" ON assistance_requests
     AND barangay = get_user_barangay()
   );
 
+DROP POLICY IF EXISTS "sector_staff_update_assistance" ON assistance_requests;
 CREATE POLICY "sector_staff_update_assistance" ON assistance_requests
   FOR UPDATE
   USING (
@@ -179,6 +196,7 @@ CREATE POLICY "sector_staff_update_assistance" ON assistance_requests
     AND barangay = get_user_barangay()
   );
 
+DROP POLICY IF EXISTS "sector_staff_insert_assistance" ON assistance_requests;
 CREATE POLICY "sector_staff_insert_assistance" ON assistance_requests
   FOR INSERT
   WITH CHECK (
@@ -187,6 +205,7 @@ CREATE POLICY "sector_staff_insert_assistance" ON assistance_requests
   );
 
 -- Residents: read their own requests
+DROP POLICY IF EXISTS "resident_read_assistance" ON assistance_requests;
 CREATE POLICY "resident_read_assistance" ON assistance_requests
   FOR SELECT
   USING (
@@ -196,6 +215,7 @@ CREATE POLICY "resident_read_assistance" ON assistance_requests
   );
 
 -- Residents: create their own requests
+DROP POLICY IF EXISTS "resident_insert_assistance" ON assistance_requests;
 CREATE POLICY "resident_insert_assistance" ON assistance_requests
   FOR INSERT
   WITH CHECK (
@@ -209,6 +229,7 @@ CREATE POLICY "resident_insert_assistance" ON assistance_requests
 -- ==========================================
 
 -- City-wide staff: full access
+DROP POLICY IF EXISTS "admin_full_access_appointments" ON appointments;
 CREATE POLICY "admin_full_access_appointments" ON appointments
   FOR ALL
   USING (
@@ -217,6 +238,7 @@ CREATE POLICY "admin_full_access_appointments" ON appointments
   );
 
 -- Residents: read their own appointments
+DROP POLICY IF EXISTS "resident_read_appointments" ON appointments;
 CREATE POLICY "resident_read_appointments" ON appointments
   FOR SELECT
   USING (
@@ -226,6 +248,7 @@ CREATE POLICY "resident_read_appointments" ON appointments
   );
 
 -- Residents: create their own appointments
+DROP POLICY IF EXISTS "resident_insert_appointments" ON appointments;
 CREATE POLICY "resident_insert_appointments" ON appointments
   FOR INSERT
   WITH CHECK (
@@ -239,16 +262,19 @@ CREATE POLICY "resident_insert_appointments" ON appointments
 -- ==========================================
 
 -- All authenticated users can read profiles
+DROP POLICY IF EXISTS "authenticated_read_profiles" ON profiles;
 CREATE POLICY "authenticated_read_profiles" ON profiles
   FOR SELECT
   USING (auth.role() = 'authenticated');
 
 -- Users can update their own profile
+DROP POLICY IF EXISTS "self_update_profiles" ON profiles;
 CREATE POLICY "self_update_profiles" ON profiles
   FOR UPDATE
   USING (auth.uid() = id);
 
 -- Staff can update any profile (for role/barangay management)
+DROP POLICY IF EXISTS "staff_update_profiles" ON profiles;
 CREATE POLICY "staff_update_profiles" ON profiles
   FOR UPDATE
   USING (
@@ -261,6 +287,7 @@ CREATE POLICY "staff_update_profiles" ON profiles
 -- ==========================================
 
 -- City-wide staff: full access
+DROP POLICY IF EXISTS "admin_full_access_complaints" ON complaints;
 CREATE POLICY "admin_full_access_complaints" ON complaints
   FOR ALL
   USING (
@@ -269,6 +296,7 @@ CREATE POLICY "admin_full_access_complaints" ON complaints
   );
 
 -- Residents: read their own complaints
+DROP POLICY IF EXISTS "resident_read_complaints" ON complaints;
 CREATE POLICY "resident_read_complaints" ON complaints
   FOR SELECT
   USING (
@@ -278,6 +306,7 @@ CREATE POLICY "resident_read_complaints" ON complaints
   );
 
 -- Residents: create complaints
+DROP POLICY IF EXISTS "resident_insert_complaints" ON complaints;
 CREATE POLICY "resident_insert_complaints" ON complaints
   FOR INSERT
   WITH CHECK (
@@ -291,6 +320,7 @@ CREATE POLICY "resident_insert_complaints" ON complaints
 -- ==========================================
 
 -- City-wide staff: full access
+DROP POLICY IF EXISTS "admin_full_access_id_inventory" ON id_inventory;
 CREATE POLICY "admin_full_access_id_inventory" ON id_inventory
   FOR ALL
   USING (
@@ -299,6 +329,7 @@ CREATE POLICY "admin_full_access_id_inventory" ON id_inventory
   );
 
 -- Residents: read their own inventory
+DROP POLICY IF EXISTS "resident_read_id_inventory" ON id_inventory;
 CREATE POLICY "resident_read_id_inventory" ON id_inventory
   FOR SELECT
   USING (
@@ -312,6 +343,7 @@ CREATE POLICY "resident_read_id_inventory" ON id_inventory
 -- ==========================================
 
 -- City-wide staff: full access
+DROP POLICY IF EXISTS "admin_full_access_bedridden" ON bedridden_verifications;
 CREATE POLICY "admin_full_access_bedridden" ON bedridden_verifications
   FOR ALL
   USING (
@@ -320,6 +352,7 @@ CREATE POLICY "admin_full_access_bedridden" ON bedridden_verifications
   );
 
 -- Residents: read their own verifications
+DROP POLICY IF EXISTS "resident_read_bedridden" ON bedridden_verifications;
 CREATE POLICY "resident_read_bedridden" ON bedridden_verifications
   FOR SELECT
   USING (
@@ -333,6 +366,7 @@ CREATE POLICY "resident_read_bedridden" ON bedridden_verifications
 -- ==========================================
 
 -- Staff only: quarterly reports are internal
+DROP POLICY IF EXISTS "staff_access_quarterly" ON quarterly_updates;
 CREATE POLICY "staff_access_quarterly" ON quarterly_updates
   FOR ALL
   USING (
@@ -345,6 +379,7 @@ CREATE POLICY "staff_access_quarterly" ON quarterly_updates
 -- ==========================================
 
 -- City-wide staff: full access
+DROP POLICY IF EXISTS "admin_full_access_family" ON family_composition;
 CREATE POLICY "admin_full_access_family" ON family_composition
   FOR ALL
   USING (
@@ -353,6 +388,7 @@ CREATE POLICY "admin_full_access_family" ON family_composition
   );
 
 -- Residents: read their own family composition
+DROP POLICY IF EXISTS "resident_read_family" ON family_composition;
 CREATE POLICY "resident_read_family" ON family_composition
   FOR SELECT
   USING (
@@ -380,6 +416,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- Only staff can read audit logs
+DROP POLICY IF EXISTS "staff_read_audit_logs" ON audit_logs;
 CREATE POLICY "staff_read_audit_logs" ON audit_logs
   FOR SELECT
   USING (
@@ -388,6 +425,7 @@ CREATE POLICY "staff_read_audit_logs" ON audit_logs
   );
 
 -- System/service role can insert (trigger-based)
+DROP POLICY IF EXISTS "system_insert_audit_logs" ON audit_logs;
 CREATE POLICY "system_insert_audit_logs" ON audit_logs
   FOR INSERT
   WITH CHECK (auth.role() = 'authenticated' OR auth.role() = 'service_role');

@@ -1,8 +1,22 @@
 -- OSCALink: Family Composition Table
 -- Standard OSCA registration requires tracking dependents and family income.
--- The base table was already created in an earlier migration with columns:
---   id, senior_id, member_name, relationship, birthdate, occupation, monthly_income, created_at
--- This migration adds the civil_status column and ensures RLS is properly applied.
+-- Create the table if it does not already exist, then add columns and ensure
+-- RLS is properly applied. The column/RLS statements below are idempotent.
+
+-- Ensure seniors.barangay exists before the RLS policies below reference it
+ALTER TABLE public.seniors ADD COLUMN IF NOT EXISTS barangay TEXT;
+
+CREATE TABLE IF NOT EXISTS public.family_composition (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  member_name TEXT NOT NULL,
+  relationship TEXT,
+  birthdate DATE,
+  occupation TEXT,
+  monthly_income NUMERIC(10,2) DEFAULT 0,
+  civil_status TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- Add civil_status column if it doesn't exist
 DO $$

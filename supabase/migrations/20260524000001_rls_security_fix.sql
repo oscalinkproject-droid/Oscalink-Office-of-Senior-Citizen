@@ -3,6 +3,33 @@
 -- and creates strict role-based policies using auth.jwt() -> 'user_metadata'.
 
 -- ============================================================
+-- Ensure profiles table exists before enabling RLS on it
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'staff',
+  full_name TEXT,
+  barangay TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- Column guards: ensure columns referenced by the policies below
+-- exist before any CREATE POLICY statement is evaluated
+-- ============================================================
+
+ALTER TABLE public.seniors ADD COLUMN IF NOT EXISTS barangay TEXT;
+
+ALTER TABLE public.assistance_requests ADD COLUMN IF NOT EXISTS barangay TEXT;
+ALTER TABLE public.assistance_requests ADD COLUMN IF NOT EXISTS senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE;
+
+ALTER TABLE public.endorsements ADD COLUMN IF NOT EXISTS barangay TEXT;
+
+ALTER TABLE public.batch_endorsements ADD COLUMN IF NOT EXISTS barangay TEXT;
+
+-- ============================================================
 -- Helper: Role check functions (used in policies to reduce duplication)
 -- ============================================================
 
@@ -237,6 +264,16 @@ CREATE POLICY "resident_delete_appointments" ON public.appointments
 -- 5. complaints
 -- ============================================================
 
+-- Ensure table exists before enabling RLS on it
+CREATE TABLE IF NOT EXISTS public.complaints (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  description TEXT,
+  status TEXT DEFAULT 'Pending',
+  barangay TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE public.complaints ENABLE ROW LEVEL SECURITY;
 
 -- City-wide with canManageComplaints: full access
@@ -274,6 +311,15 @@ CREATE POLICY "resident_select_complaints" ON public.complaints
 -- 6. id_inventory
 -- ============================================================
 
+-- Ensure table exists before enabling RLS on it
+CREATE TABLE IF NOT EXISTS public.id_inventory (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  id_serial TEXT,
+  issued_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE public.id_inventory ENABLE ROW LEVEL SECURITY;
 
 -- City-wide: full access
@@ -303,6 +349,16 @@ CREATE POLICY "sector_locked_select_id_inventory" ON public.id_inventory
 -- ============================================================
 -- 7. bedridden_verifications
 -- ============================================================
+
+-- Ensure table exists before enabling RLS on it
+CREATE TABLE IF NOT EXISTS public.bedridden_verifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  assigned_official_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  status TEXT DEFAULT 'Pending',
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 ALTER TABLE public.bedridden_verifications ENABLE ROW LEVEL SECURITY;
 
@@ -342,6 +398,15 @@ CREATE POLICY "sector_locked_update_bedridden" ON public.bedridden_verifications
 -- ============================================================
 -- 8. quarterly_updates
 -- ============================================================
+
+-- Ensure table exists before enabling RLS on it
+CREATE TABLE IF NOT EXISTS public.quarterly_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  update_period TEXT,
+  notes TEXT,
+  recorded_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 ALTER TABLE public.quarterly_updates ENABLE ROW LEVEL SECURITY;
 

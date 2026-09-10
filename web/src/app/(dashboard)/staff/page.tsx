@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { StaffForm } from "@/components/ui/staff-form";
 import { createClient } from "@/lib/supabase";
 import { redirect, useRouter } from "next/navigation";
-import { deleteStaff, resetStaffPassword } from "@/app/actions/users";
+import { getStaffList, deleteStaff, resetStaffPassword } from "@/app/actions/users";
+import { normalizeRole, OSCA_ROLES } from "@/lib/rbac";
 
 interface StaffMember {
   id: string;
@@ -40,19 +41,14 @@ export default function StaffPage() {
         redirect("/login");
       }
 
-      const role = user.user_metadata?.role;
-      if (role !== 'osca_head') {
+      const role = normalizeRole(user.user_metadata?.role);
+      if (!role || !(OSCA_ROLES as readonly string[]).includes(role)) {
         redirect("/dashboard");
       }
 
-      setCanManageStaff(role === 'osca_head');
+      setCanManageStaff(role === 'osca_head' || role === 'super_admin');
 
-      const { data: staff } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('role', ['osca_head', 'osca_staff'])
-        .order('full_name', { ascending: true });
-
+      const staff = await getStaffList();
       setStaffList(staff || []);
       setLoading(false);
       setTimeout(() => setIsVisible(true), 50);
@@ -167,7 +163,7 @@ export default function StaffPage() {
             </div>
             <div>
               <p className="text-[10px] text-outline font-bold uppercase tracking-widest">OSCA Head</p>
-              <p className="text-2xl font-bold text-foreground">{staffList.filter(s => s.role === 'osca_head').length}</p>
+              <p className="text-2xl font-bold text-foreground">{staffList.filter(s => normalizeRole(s.role) === 'osca_head').length}</p>
             </div>
           </div>
         </div>
@@ -178,7 +174,7 @@ export default function StaffPage() {
             </div>
             <div>
               <p className="text-[10px] text-outline font-bold uppercase tracking-widest">OSCA Staff</p>
-              <p className="text-2xl font-bold text-foreground">{staffList.filter(s => s.role === 'osca_staff').length}</p>
+              <p className="text-2xl font-bold text-foreground">{staffList.filter(s => normalizeRole(s.role) === 'osca_staff').length}</p>
             </div>
           </div>
         </div>
@@ -262,7 +258,7 @@ export default function StaffPage() {
                     </td>
                     <td className="py-3">
                       <span className="text-[9px] text-primary uppercase tracking-tighter font-bold">
-                        {staff.role === 'osca_head' ? 'OSCA Head' : staff.role?.replace(/_/g, ' ')}
+                        {normalizeRole(staff.role) === 'osca_head' ? 'OSCA Head' : (staff.role || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="py-3">

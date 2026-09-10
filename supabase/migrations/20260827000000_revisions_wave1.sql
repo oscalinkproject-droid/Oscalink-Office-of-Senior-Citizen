@@ -7,6 +7,28 @@
 -- 6. Dedup on full_name + birthdate
 -- 7. Role taxonomy: super_admin / admin
 
+-- Ensure notifications table exists before ALTER/INDEX statements reference it
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id                    uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id               uuid        REFERENCES auth.users(id) ON DELETE CASCADE,
+  title                 text        NOT NULL,
+  message               text        NOT NULL,
+  type                  text        NOT NULL DEFAULT 'info',
+  read                  boolean     NOT NULL DEFAULT false,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  status                text,
+  category              text,
+  notification_category text,
+  broadcast_id          uuid,
+  send_at               timestamptz,
+  link                  text,
+  reporter_id           uuid,
+  parent_id             uuid
+);
+
+-- Ensure seniors.birthdate exists before the unique index below references it
+ALTER TABLE public.seniors ADD COLUMN IF NOT EXISTS birthdate DATE;
+
 -- ---------------------------------------------------------------------------
 -- 1. Status vocabulary
 -- ---------------------------------------------------------------------------

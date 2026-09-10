@@ -13,6 +13,15 @@ ALTER TABLE seniors DROP CONSTRAINT IF EXISTS seniors_civil_status_check;
 ALTER TABLE seniors DROP CONSTRAINT IF EXISTS seniors_blood_type_check;
 ALTER TABLE seniors DROP CONSTRAINT IF EXISTS seniors_age_check;
 
+-- Column guards: ensure columns referenced below exist on public.seniors
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS barangay TEXT;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS sex TEXT;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS civil_status TEXT;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS blood_type TEXT;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS classification TEXT;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS is_bedridden BOOLEAN;
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS is_social_pension_applicant BOOLEAN;
+
 -- ==========================================
 -- 1. BARANGAY CHECK CONSTRAINT
 -- Only allow the 37 official Cotabato City barangays
@@ -53,7 +62,15 @@ ALTER TABLE seniors ADD CONSTRAINT seniors_barangay_check
 -- Strictly 'M' or 'F'
 -- ==========================================
 
-UPDATE seniors SET sex = NULL WHERE sex IS NOT NULL AND sex NOT IN ('M', 'F');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'seniors' AND column_name = 'sex'
+  ) THEN
+    EXECUTE 'UPDATE seniors SET sex = NULL WHERE sex IS NOT NULL AND sex NOT IN (''M'', ''F'')';
+  END IF;
+END $$;
 
 ALTER TABLE seniors ADD CONSTRAINT seniors_sex_check
   CHECK (sex IS NULL OR sex IN ('M', 'F'));
@@ -62,7 +79,15 @@ ALTER TABLE seniors ADD CONSTRAINT seniors_sex_check
 -- 3. CIVIL STATUS CHECK CONSTRAINT
 -- ==========================================
 
-UPDATE seniors SET civil_status = NULL WHERE civil_status IS NOT NULL AND civil_status NOT IN ('Single', 'Married', 'Separated', 'Divorced', 'Widowed');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'seniors' AND column_name = 'civil_status'
+  ) THEN
+    EXECUTE 'UPDATE seniors SET civil_status = NULL WHERE civil_status IS NOT NULL AND civil_status NOT IN (''Single'', ''Married'', ''Separated'', ''Divorced'', ''Widowed'')';
+  END IF;
+END $$;
 
 ALTER TABLE seniors ADD CONSTRAINT seniors_civil_status_check
   CHECK (civil_status IS NULL OR civil_status IN ('Single', 'Married', 'Separated', 'Divorced', 'Widowed'));
@@ -71,7 +96,15 @@ ALTER TABLE seniors ADD CONSTRAINT seniors_civil_status_check
 -- 4. BLOOD TYPE CHECK CONSTRAINT
 -- ==========================================
 
-UPDATE seniors SET blood_type = NULL WHERE blood_type IS NOT NULL AND blood_type NOT IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'seniors' AND column_name = 'blood_type'
+  ) THEN
+    EXECUTE 'UPDATE seniors SET blood_type = NULL WHERE blood_type IS NOT NULL AND blood_type NOT IN (''A+'', ''A-'', ''B+'', ''B-'', ''AB+'', ''AB-'', ''O+'', ''O-'', ''Unknown'')';
+  END IF;
+END $$;
 
 ALTER TABLE seniors ADD CONSTRAINT seniors_blood_type_check
   CHECK (blood_type IS NULL OR blood_type IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'));
@@ -107,7 +140,15 @@ UPDATE seniors SET has_other_pension = FALSE WHERE has_other_pension IS NULL;
 -- 7. CLASSIFICATION CHECK CONSTRAINT
 -- ==========================================
 
-UPDATE seniors SET classification = NULL WHERE classification IS NOT NULL AND classification NOT IN ('Pensioner', 'Indigent', 'Supported', 'Private');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'seniors' AND column_name = 'classification'
+  ) THEN
+    EXECUTE 'UPDATE seniors SET classification = NULL WHERE classification IS NOT NULL AND classification NOT IN (''Pensioner'', ''Indigent'', ''Supported'', ''Private'')';
+  END IF;
+END $$;
 
 ALTER TABLE seniors ADD CONSTRAINT seniors_classification_check
   CHECK (classification IS NULL OR classification IN ('Pensioner', 'Indigent', 'Supported', 'Private'));

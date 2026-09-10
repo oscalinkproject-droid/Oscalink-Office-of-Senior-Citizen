@@ -24,6 +24,8 @@ BEGIN
 END $$;
 
 -- 1. Tanggalin ang id_number sa lahat ng Pending (Clean state)
+ALTER TABLE public.seniors ADD COLUMN IF NOT EXISTS osca_approved BOOLEAN DEFAULT false;
+
 UPDATE public.seniors
 SET id_number      = NULL,
     id_issue_date  = NULL,

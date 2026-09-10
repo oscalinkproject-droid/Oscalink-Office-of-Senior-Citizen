@@ -8,6 +8,7 @@
 -- ==========================================
 
 -- 1. Add standardized structured columns
+ALTER TABLE seniors ADD COLUMN IF NOT EXISTS emergency_contact TEXT;
 ALTER TABLE seniors ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT;
 ALTER TABLE seniors ADD COLUMN IF NOT EXISTS emergency_contact_number TEXT;
 
@@ -23,7 +24,7 @@ SET
   emergency_contact_number = CASE
     WHEN emergency_contact IS NOT NULL AND emergency_contact != '' THEN
       NULLIF(
-        (REGEXP_MATCHES(emergency_contact, '(09\d{9})'))[1],
+        SUBSTRING(emergency_contact FROM '(09\d{9})'),
         ''
       )
     ELSE NULL

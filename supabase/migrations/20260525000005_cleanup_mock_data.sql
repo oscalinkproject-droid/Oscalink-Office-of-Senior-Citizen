@@ -8,6 +8,28 @@
 -- Does NOT touch the profiles table.
 -- ==========================================
 
+-- Ensure tables referenced in DELETE statements below exist
+CREATE TABLE IF NOT EXISTS public.verification_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'Pending',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.discount_violations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.id_issuance_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  senior_id UUID REFERENCES public.seniors(id) ON DELETE CASCADE,
+  issued_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  issued_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- IDENTIFIED MOCK/TEST SENIOR RECORDS
 -- These are identified by:
 --   - registration_id pattern (AX-*, MOCK-*, HACK-*, BREACH-*, BACKDOOR-*, TEST-*, MAYOR-*, COL*-)

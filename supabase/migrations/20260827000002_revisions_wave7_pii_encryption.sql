@@ -21,6 +21,19 @@ ALTER TABLE public.seniors
   ADD COLUMN IF NOT EXISTS enc_tin bytea,
   ADD COLUMN IF NOT EXISTS enc_pvao_no bytea;
 
+ALTER TABLE public.seniors
+  ADD COLUMN IF NOT EXISTS philhealth_no text,
+  ADD COLUMN IF NOT EXISTS sss_no text,
+  ADD COLUMN IF NOT EXISTS gsis_no text,
+  ADD COLUMN IF NOT EXISTS tin text,
+  ADD COLUMN IF NOT EXISTS pvao_no text,
+  ADD COLUMN IF NOT EXISTS contact_number text,
+  ADD COLUMN IF NOT EXISTS address text,
+  ADD COLUMN IF NOT EXISTS place_of_birth text,
+  ADD COLUMN IF NOT EXISTS purok text,
+  ADD COLUMN IF NOT EXISTS is_pensioner boolean,
+  ADD COLUMN IF NOT EXISTS auth_id uuid;
+
 -- Encrypt on write and clear plaintext.
 CREATE OR REPLACE FUNCTION public.encrypt_senior_pii()
 RETURNS trigger

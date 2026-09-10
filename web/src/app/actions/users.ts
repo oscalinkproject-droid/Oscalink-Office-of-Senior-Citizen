@@ -5,15 +5,22 @@ import { sendCredentialEmail, sendPasswordResetEmail } from "@/lib/send-email";
 import { revalidatePath } from "next/cache";
 import { normalizeRole, OSCA_ROLES } from "@/lib/rbac";
 
+// Privileged Supabase client that bypasses RLS for staff management. Falls back
+// to the user-authenticated server client when SUPABASE_SERVICE_ROLE_KEY is not
+// configured (e.g. local development) so the feature keeps working everywhere.
+async function getPrivilegedClient() {
+  const adminClient = await createAdminClient();
+  return adminClient ?? (await createServerClient());
+}
+
 // Resolve a caller's app role from the profiles table, falling back to
-// user_metadata. Roles are normalized (legacy values like 'head' -> 'osca_head'
-// and 'admin' -> 'osca_staff') so valid staff are never rejected for using the
-// role name that is actually stored in their account.
-async function getCallerRole(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  user: { id: string; user_metadata?: Record<string, unknown> | null }
-) {
-  const { data: profile } = await supabase
+// user_metadata. Reads are done through the service-role client when available,
+// so an RLS policy can never make a valid staff account look unauthorized. Roles
+// are normalized (legacy values like 'head' -> 'osca_head' and 'admin' ->
+// 'osca_staff') so stored role names never trigger a false FORBIDDEN.
+async function getCallerRole(user: { id: string; user_metadata?: Record<string, unknown> | null }) {
+  const client = await getPrivilegedClient();
+  const { data: profile } = await client
     .from('profiles')
     .select('role')
     .eq('id', user.id)
@@ -28,7 +35,7 @@ export async function createStaff(formData: FormData) {
     return { error: 'UNAUTHORIZED: You must be logged in to provision staff.' };
   }
 
-  const callerRole = await getCallerRole(supabase, user);
+  const callerRole = await getCallerRole(user);
 
   if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can create accounts.' };
@@ -50,8 +57,8 @@ export async function createStaff(formData: FormData) {
   const contactNumber = formData.get('contact_number') as string;
   const password = Math.random().toString(36).slice(-12);
 
-  const validRoles = ['super_admin', 'osca_head', 'osca_staff'];
-  if (!validRoles.includes(role)) {
+  const validRoles = ['super_admin', 'admin', 'head', 'osca_head', 'osca_staff'];
+  if (!(validRoles.includes(role) || normalizeRole(role))) {
     return { error: 'Invalid role selected. Only OSCA staff roles can be commissioned.' };
   }
 
@@ -60,10 +67,6 @@ export async function createStaff(formData: FormData) {
     role: role,
     barangay: barangay || null,
   };
-
-  if (role === 'barangay_president' && purok) {
-    userMetadata.purok = purok;
-  }
 
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email,
@@ -77,7 +80,8 @@ export async function createStaff(formData: FormData) {
     return { error: `AUTH_FAILURE: ${authError.message}` };
   }
 
-  const { error: profileError } = await supabase
+  // Insert the profile through the service-role client to bypass RLS on Vercel.
+  const { error: profileError } = await adminClient
     .from('profiles')
     .insert([
       {
@@ -110,11 +114,22 @@ export async function createStaff(formData: FormData) {
 }
 
 export async function getStaffList() {
-  const supabase = await createServerClient();
-  const { data, error } = await supabase
+  // Service-role client so RLS never hides staff rows on production; falls back
+  // to the anon client locally. Matches both legacy and canonical role names.
+  const client = await getPrivilegedClient();
+  const { data, error } = await client
     .from('profiles')
     .select('*')
-    .in('role', ['super_admin', 'osca_head', 'osca_staff', 'barangay_president', 'barangay_official'])
+    .in('role', [
+      'super_admin',
+      'admin',
+      'head',
+      'osca_head',
+      'osca_staff',
+      'barangay_president',
+      'barangay_official',
+      'official',
+    ])
     .order('full_name', { ascending: true });
 
   if (error) {
@@ -132,7 +147,7 @@ export async function deleteStaff(staffId: string) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const callerRole = await getCallerRole(supabase, user);
+  const callerRole = await getCallerRole(user);
 
   if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can remove accounts.' };
@@ -151,7 +166,7 @@ export async function deleteStaff(staffId: string) {
     return { error: `AUTH_DELETE_FAILED: ${authError.message}` };
   }
 
-  const { error: profileError } = await supabase
+  const { error: profileError } = await adminClient
     .from('profiles')
     .delete()
     .eq('id', staffId);
@@ -171,7 +186,7 @@ export async function updateStaff(staffId: string, formData: FormData) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const callerRole = await getCallerRole(supabase, user);
+  const callerRole = await getCallerRole(user);
 
   if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can update accounts.' };
@@ -216,7 +231,7 @@ export async function updateStaff(staffId: string, formData: FormData) {
     return { error: `AUTH_UPDATE_FAILED: ${authError.message}` };
   }
 
-  const { error: profileError } = await supabase
+  const { error: profileError } = await adminClient
     .from('profiles')
     .update({
       full_name: fullName,
@@ -244,7 +259,7 @@ export async function resetStaffPassword(staffId: string) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const callerRole = await getCallerRole(supabase, user);
+  const callerRole = await getCallerRole(user);
 
   if (callerRole !== 'osca_head' && callerRole !== 'super_admin') {
     return { error: 'FORBIDDEN: Only the OSCA Head can reset staff passwords.' };
@@ -255,7 +270,7 @@ export async function resetStaffPassword(staffId: string) {
     return { error: "MUNICIPAL_AUTH_REJECTION: Service role key not available" };
   }
 
-  const { data: staffProfile, error: profileErr } = await supabase
+  const { data: staffProfile, error: profileErr } = await adminClient
     .from('profiles')
     .select('email, full_name')
     .eq('id', staffId)
