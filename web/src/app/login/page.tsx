@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
+import { normalizeRole, OSCA_ROLES, SECTOR_LOCKED_ROLES } from '@/lib/rbac';
 import Image from 'next/image';
 
 export default function LoginPage() {
@@ -11,22 +13,70 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const supabase = createClient();
+  const router = useRouter();
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
+    // Guard against a silently hanging token request: never leave the button
+    // stuck on "Authenticating..." with no feedback.
+    const timeoutId = setTimeout(() => {
       setLoading(false);
-    } else {
-      window.location.href = '/dashboard';
+      setError('Login timed out. Please check your connection and try again.');
+    }, 20000);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        console.error('[login] signInWithPassword failed:', error);
+        setError(
+          error.message === 'Invalid login credentials'
+            ? 'Incorrect email or password.'
+            : error.message
+        );
+        return;
+      }
+
+      const user = data.session?.user ?? null;
+      let role = normalizeRole(user?.user_metadata?.role);
+
+      // Fall back to the profiles table when user_metadata has no recognizable
+      // role (common for accounts provisioned with legacy role names).
+      if (!role && user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+        role = normalizeRole(profile?.role);
+      }
+
+      if (!role) {
+        console.error('[login] No resolvable role for', user?.email);
+        setError('Your account has not been assigned a portal role yet. Please contact the administrator.');
+        return;
+      }
+
+      if ((OSCA_ROLES as readonly string[]).includes(role)) {
+        router.replace('/dashboard');
+      } else if ((SECTOR_LOCKED_ROLES as readonly string[]).includes(role)) {
+        router.replace('/barangay/dashboard');
+      } else {
+        console.error('[login] Portal login blocked for role', role);
+        setError('This account is not authorized to use the web portal. Please use the mobile app instead.');
+      }
+    } catch (err) {
+      console.error('[login] Unhandled auth error:', err);
+      setError('Something went wrong while signing in. Please try again.');
+    } finally {
+      clearTimeout(timeoutId);
+      setLoading(false);
     }
   }
 

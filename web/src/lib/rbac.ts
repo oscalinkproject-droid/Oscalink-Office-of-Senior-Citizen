@@ -1,4 +1,4 @@
-import { USER_ROLES, type UserRole } from './constants';
+import { USER_ROLES } from './constants';
 
 export type RoleLevel = 'super_admin' | 'osca_head' | 'osca_staff' | 'barangay_president' | 'barangay_official' | 'senior_citizen';
 
@@ -100,6 +100,28 @@ export const ROLE_PERMISSIONS: Record<RoleLevel, RolePermissions> = {
   },
 };
 
+// Legacy role names that still appear in production data (auth.users metadata,
+// profiles rows, and RLS functions) but differ from the canonical app roles.
+// Without normalization these accounts get silently rejected by proxy.ts and
+// bounced back to /login in an infinite loop after a successful sign-in.
+export const ROLE_ALIASES: Record<string, RoleLevel> = {
+  admin: 'osca_staff',
+  mswd_officer: 'osca_staff',
+  official: 'barangay_official',
+  para_social_worker: 'barangay_official',
+  resident: 'senior_citizen',
+};
+
+export function normalizeRole(raw: unknown): RoleLevel | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if ((USER_ROLES as readonly string[]).includes(value)) {
+    return value as RoleLevel;
+  }
+  return ROLE_ALIASES[value] ?? null;
+}
+
 export const ADMIN_ROLES: RoleLevel[] = ['super_admin', 'osca_head', 'osca_staff'];
 export const OSCA_ROLES: RoleLevel[] = ['super_admin', 'osca_head', 'osca_staff'];
 export const CITY_WIDE_ROLES: RoleLevel[] = ['super_admin', 'osca_head', 'osca_staff'];
@@ -132,13 +154,7 @@ export function canApprove(role: RoleLevel): boolean {
 }
 
 export function getUserRole(userMetadata: Record<string, unknown> | undefined): RoleLevel {
-  if (!userMetadata) return 'senior_citizen';
-
-  const role = userMetadata.role as string;
-  if (USER_ROLES.includes(role as UserRole)) {
-    return role as RoleLevel;
-  }
-  return 'senior_citizen';
+  return normalizeRole(userMetadata?.role) ?? 'senior_citizen';
 }
 
 export function getRolePermissions(role: RoleLevel): RolePermissions {

@@ -1,8 +1,37 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { OSCA_ROLES, SECTOR_LOCKED_ROLES } from "@/lib/rbac";
+import {
+  OSCA_ROLES,
+  SECTOR_LOCKED_ROLES,
+  normalizeRole,
+  type RoleLevel,
+} from "@/lib/rbac";
 
 const BARANGAY_ROUTES = ["/barangay"];
+const MAIN_PORTAL_ROUTES = ["/dashboard", "/directory", "/staff", "/reports", "/archive"];
+
+// Resolve a user's app role from user_metadata first, falling back to the
+// profiles table. Accounts provisioned with a legacy or missing
+// user_metadata.role used to be bounced straight back to /login after a
+// successful sign-in, which made login look stuck even though auth succeeded.
+async function resolveRole(
+  supabase: ReturnType<typeof createServerClient>,
+  user: { id: string; user_metadata?: Record<string, unknown> }
+): Promise<RoleLevel | null> {
+  const fromMetadata = normalizeRole(user.user_metadata?.role);
+  if (fromMetadata) return fromMetadata;
+
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    return normalizeRole(data?.role);
+  } catch {
+    return null;
+  }
+}
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -35,10 +64,7 @@ export async function proxy(request: NextRequest) {
   } catch {
     // Stale/invalid refresh token — treat as unauthenticated
   }
-  const role = (user?.user_metadata?.role as string) || "";
   const pathname = request.nextUrl.pathname;
-
-  const BARANGAY_ROLES = new Set(SECTOR_LOCKED_ROLES as readonly string[]);
 
   // Barangay routes
   if (BARANGAY_ROUTES.some((route) => pathname.startsWith(route))) {
@@ -47,16 +73,22 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/login";
       return NextResponse.redirect(url);
     }
-    if (!BARANGAY_ROLES.has(role)) {
+    const role = await resolveRole(supabase, user);
+    if (!role || !(SECTOR_LOCKED_ROLES as readonly string[]).includes(role)) {
       const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
+      url.pathname = role ? "/dashboard" : "/";
       return NextResponse.redirect(url);
     }
   }
 
+  const role = user ? await resolveRole(supabase, user) : null;
+
   // Redirect barangay roles away from main portal
-  const MAIN_PORTAL_ROUTES = ["/dashboard", "/directory", "/staff", "/reports", "/archive"];
-  if (BARANGAY_ROLES.has(role) && MAIN_PORTAL_ROUTES.some((route) => pathname.startsWith(route))) {
+  if (
+    role &&
+    (SECTOR_LOCKED_ROLES as readonly string[]).includes(role) &&
+    MAIN_PORTAL_ROUTES.some((route) => pathname.startsWith(route))
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/barangay/dashboard";
     return NextResponse.redirect(url);
@@ -70,21 +102,26 @@ export async function proxy(request: NextRequest) {
   }
 
   // Require auth for dashboard routes
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/directory") || pathname.startsWith("/staff") || pathname.startsWith("/reports") || pathname.startsWith("/archive")) {
+  if (MAIN_PORTAL_ROUTES.some((route) => pathname.startsWith(route))) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       return NextResponse.redirect(url);
     }
-    if (!(OSCA_ROLES as readonly string[]).includes(role)) {
+    if (!role || !(OSCA_ROLES as readonly string[]).includes(role)) {
+      // Authenticated but with an unrecognized role: send to the public
+      // homepage instead of back to /login (which caused a sign-in loop).
       const url = request.nextUrl.clone();
-      url.pathname = "/login";
+      url.pathname = "/";
       return NextResponse.redirect(url);
     }
   }
 
   // System Records are OSCA Staff only
-  if ((pathname.startsWith("/reports") || pathname.startsWith("/archive")) && role !== "osca_staff") {
+  if (
+    (pathname.startsWith("/reports") || pathname.startsWith("/archive")) &&
+    role !== "osca_staff"
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

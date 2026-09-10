@@ -81,7 +81,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
         setUser(userData);
         setLoading(false);
       } else {
-        router.push('/');
+        router.push('/login');
       }
     }
     getUser();
