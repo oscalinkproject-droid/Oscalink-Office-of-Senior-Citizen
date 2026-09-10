@@ -8,43 +8,57 @@ import { MetricCardSkeleton, ChartSkeleton } from "@/components/ui/skeletons";
 const getDashboardStats = cache(async function() {
   const supabase = await createClient();
 
-  const { count: totalSeniors } = await supabase
+  const { count: totalSeniors, error: totalErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true });
 
-  const { count: activeSeniors } = await supabase
+  if (totalErr) console.error('[dashboard] totalSeniors query failed:', totalErr.message);
+
+  const { count: activeSeniors, error: activeErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'Active');
 
-  const { count: pendingSeniors } = await supabase
+  if (activeErr) console.error('[dashboard] activeSeniors query failed:', activeErr.message);
+
+  const { count: pendingSeniors, error: pendingErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true })
     .eq('status', 'Pending');
 
-  const { count: archivedSeniors } = await supabase
+  if (pendingErr) console.error('[dashboard] pendingSeniors query failed:', pendingErr.message);
+
+  const { count: archivedSeniors, error: archivedErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true })
     .in('status', ['Transferred', 'Deceased']);
+
+  if (archivedErr) console.error('[dashboard] archivedSeniors query failed:', archivedErr.message);
 
   const now = new Date();
   const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
-  const { count: thisMonthCount } = await supabase
+  const { count: thisMonthCount, error: thisMonthErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true })
     .gte('created_at', firstOfThisMonth);
 
-  const { count: lastMonthCount } = await supabase
+  if (thisMonthErr) console.error('[dashboard] thisMonthCount query failed:', thisMonthErr.message);
+
+  const { count: lastMonthCount, error: lastMonthErr } = await supabase
     .from('seniors')
     .select('*', { count: 'exact', head: true })
     .gte('created_at', firstOfLastMonth)
     .lt('created_at', firstOfThisMonth);
 
+  if (lastMonthErr) console.error('[dashboard] lastMonthCount query failed:', lastMonthErr.message);
+
   const growth = lastMonthCount && lastMonthCount > 0
     ? Math.round((((thisMonthCount || 0) - lastMonthCount) / lastMonthCount) * 100)
     : 0;
+
+  console.log('[dashboard] stats:', { totalSeniors, activeSeniors, pendingSeniors, archivedSeniors });
 
   return {
     totalSeniors: totalSeniors || 0,
@@ -58,11 +72,16 @@ const getDashboardStats = cache(async function() {
 const getDemographicData = cache(async function() {
   const supabase = await createClient();
 
-  const { data: seniors } = await supabase
+  const { data: seniors, error } = await supabase
     .from('seniors')
     .select('age, birthdate, status, barangay, created_at, purok');
 
+  if (error) {
+    console.error('[dashboard] demographics query failed:', error.message, error.code);
+  }
+
   const records = seniors || [];
+  console.log('[dashboard] demographics records fetched:', records.length);
 
   const ageGroups = [
     { label: "60-64", value: 0 },

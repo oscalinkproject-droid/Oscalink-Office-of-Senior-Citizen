@@ -28,7 +28,7 @@ async function resolveRole(
       .eq("id", user.id)
       .maybeSingle();
     if (error) {
-      console.warn("[proxy] profiles lookup failed, using metadata as-is:", error.message);
+      console.warn("[middleware] profiles lookup failed, using metadata as-is:", error.message);
     }
     const fromProfile = normalizeRole(data?.role);
     if (fromProfile) return fromProfile;
@@ -39,14 +39,14 @@ async function resolveRole(
   // Final fallback: never bounce a successfully authenticated account solely
   // because the role lookup couldn't be resolved server-side.
   if (user) {
-    console.warn(`[proxy] No role resolvable for ${user.id} — defaulting to osca_staff.`);
+    console.warn(`[middleware] No role resolvable for ${user.id} — defaulting to osca_staff.`);
     return "osca_staff";
   }
 
   return null;
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

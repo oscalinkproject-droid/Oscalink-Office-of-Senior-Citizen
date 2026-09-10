@@ -38,7 +38,10 @@ const FALLBACK_NEWS: NewsItem[] = [
 
 async function getLatestNews(): Promise<NewsItem[]> {
   const supabase = await createAdminClient();
-  if (!supabase) return FALLBACK_NEWS;
+  if (!supabase) {
+    console.warn('[landing] createAdminClient returned null — SUPABASE_SERVICE_ROLE_KEY missing or placeholder. Using fallback news.');
+    return FALLBACK_NEWS;
+  }
 
   const { data } = await supabase
     .from('news')
@@ -53,7 +56,10 @@ async function getLatestNews(): Promise<NewsItem[]> {
 
 async function getLandingStats() {
   const supabase = await createAdminClient();
-  if (!supabase) return { seniorCount: '0', activeCount: '0' };
+  if (!supabase) {
+    console.warn('[landing] createAdminClient returned null — SUPABASE_SERVICE_ROLE_KEY missing or placeholder. Stats will show 0.');
+    return { seniorCount: '0', activeCount: '0' };
+  }
 
   const { count: totalSeniors } = await supabase
     .from('seniors')

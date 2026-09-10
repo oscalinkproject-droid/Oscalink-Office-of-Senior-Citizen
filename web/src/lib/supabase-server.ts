@@ -31,7 +31,15 @@ export const createServerClient = async () => {
 // Admin factory (Elevated Privileges - Staff Provisioning)
 export const createAdminClient = async () => {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceKey) return null;
+  if (!serviceKey) {
+    console.warn('[supabase-server] SUPABASE_SERVICE_ROLE_KEY is not set. Admin client unavailable — falling back to anon client. Set this in Vercel Dashboard → Settings → Environment Variables.');
+    return null;
+  }
+
+  if (serviceKey === '[SENSITIVE]' || serviceKey.startsWith('your_')) {
+    console.warn('[supabase-server] SUPABASE_SERVICE_ROLE_KEY appears to be a placeholder ("' + serviceKey + '"). Replace it with the real key from Supabase Dashboard → Settings → API → service_role.');
+    return null;
+  }
 
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

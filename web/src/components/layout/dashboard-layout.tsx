@@ -26,7 +26,7 @@ async function runAuthCheck(): Promise<User | null> {
   const supabase = createClient();
 
   // Guard against the transient "Lock ... was released because another request
-  // stole it" error that occurs when the server-side middleware (proxy.ts)
+  // stole it" error that occurs when the server-side middleware (middleware.ts)
   // refreshes the token at the same moment. Retry with a short backoff before
   // concluding the session is actually invalid.
   for (let attempt = 0; attempt < 5; attempt++) {
