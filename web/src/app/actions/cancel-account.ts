@@ -2,6 +2,7 @@
 
 import { createServerClient as createClient } from '@/lib/supabase-server';
 import { revalidatePath } from 'next/cache';
+import { normalizeRole } from '@/lib/rbac';
 
 const OSCA_ROLES = ['super_admin', 'admin', 'osca_head', 'osca_staff'];
 const CANCEL_REASON =
@@ -12,7 +13,7 @@ export async function cancelSeniorAccount(seniorId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'You must be logged in.' };
 
-  const role = user.user_metadata?.role as string | undefined;
+  const role = normalizeRole(user.user_metadata?.role);
   if (!role || !OSCA_ROLES.includes(role)) {
     return { error: 'FORBIDDEN: Only OSCA staff can cancel accounts.' };
   }

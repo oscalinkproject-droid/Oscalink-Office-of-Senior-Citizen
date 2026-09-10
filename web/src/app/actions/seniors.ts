@@ -5,13 +5,14 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { validateBarangay, GeofenceError } from "@/lib/geofencing";
 import { createSeniorSchema, updateSeniorSchema } from "@/lib/validation";
+import { normalizeRole } from "@/lib/rbac";
 import { ZodError } from "zod";
 
 export async function createSenior(formData: FormData) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  const role = user?.user_metadata?.role;
+  const role = normalizeRole(user?.user_metadata?.role);
   if (role !== 'osca_staff') {
     return { error: 'FORBIDDEN: Only OSCA Staff can register seniors.' };
   }
@@ -244,7 +245,7 @@ export async function updateSeniorStatusByBarangay(id: string, newStatus: string
     .eq('id', user.id)
     .single();
 
-  const role = profile?.role || user.user_metadata?.role;
+  const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
 
   // Centralized at OSCA Municipal Level only — barangay roles may no longer update statuses.
   if (role !== 'super_admin' && role !== 'osca_head' && role !== 'osca_staff') {
@@ -315,7 +316,7 @@ export async function verifySenior(id: string) {
       .eq('id', user.id)
       .single();
     
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (!role) {
       return { error: 'Could not resolve user role' };
     }
@@ -418,7 +419,7 @@ export async function approveSenior(id: string, manualIdNumber?: string) {
       .eq('id', user.id)
       .single();
     
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (!role) {
       return { error: 'Could not resolve user role' };
     }
@@ -567,7 +568,7 @@ export async function disapproveSenior(id: string, reason: string) {
     if (!user) return { error: 'You must be logged in.' };
 
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (role !== 'osca_head') {
       return { error: 'Unauthorized: Only the OSCA Head can disapprove records.' };
     }
@@ -600,7 +601,7 @@ export async function disqualifySenior(id: string, reason: string) {
     if (!user) return { error: 'You must be logged in.' };
 
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (role !== 'osca_head') {
       return { error: 'Unauthorized: Only the OSCA Head can disqualify records.' };
     }
@@ -635,7 +636,7 @@ export async function markInactiveSenior(id: string, reason: string) {
     if (!user) return { error: 'You must be logged in.' };
 
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (role !== 'super_admin' && role !== 'osca_head' && role !== 'osca_staff') {
       return { error: 'Unauthorized: Only OSCA Municipal staff can mark seniors inactive.' };
     }
@@ -716,7 +717,7 @@ export async function updateSenior(id: string, updates: Record<string, unknown>)
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const role = user?.user_metadata?.role;
+  const role = normalizeRole(user?.user_metadata?.role);
   if (role !== 'super_admin' && role !== 'osca_staff') {
     return { error: 'FORBIDDEN: Only OSCA Staff can update senior profile details.' };
   }
@@ -776,7 +777,7 @@ export async function resubmitApplication(id: string, formData: FormData) {
     .eq('id', user.id)
     .single();
 
-  const role = profile?.role || user.user_metadata?.role;
+  const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
   if (role !== 'osca_staff' && role !== 'super_admin') {
     return { error: 'FORBIDDEN: Only OSCA Staff can resubmit declined applications.' };
   }
@@ -942,7 +943,7 @@ export async function completePreRegistration(id: string, formData: FormData) {
     .eq('id', user.id)
     .single();
 
-  const role = profile?.role || user.user_metadata?.role;
+  const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
   if (role !== 'osca_staff' && role !== 'super_admin') {
     return { error: 'FORBIDDEN: Only OSCA Staff can complete pre-registered applications.' };
   }
@@ -1179,7 +1180,7 @@ export async function verifyAndForwardPreRegistration(id: string) {
       .eq('id', user.id)
       .single();
 
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (role !== 'osca_staff' && role !== 'super_admin') {
       return { error: 'FORBIDDEN: Only OSCA Staff can verify and forward pre-registrations.' };
     }
@@ -1346,7 +1347,7 @@ export async function decideForHeadApproval(
       .eq('id', user.id)
       .single();
 
-    const role = profile?.role || user.user_metadata?.role;
+    const role = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
     if (role !== 'osca_head') {
       return { error: 'Unauthorized: Only the OSCA Head can decide on pre-registrations.' };
     }

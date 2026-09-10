@@ -3,6 +3,23 @@
 import { createAdminClient, createServerClient } from "@/lib/supabase-server";
 import { sendCredentialEmail, sendPasswordResetEmail } from "@/lib/send-email";
 import { revalidatePath } from "next/cache";
+import { normalizeRole, OSCA_ROLES } from "@/lib/rbac";
+
+// Resolve a caller's app role from the profiles table, falling back to
+// user_metadata. Roles are normalized (legacy values like 'head' -> 'osca_head'
+// and 'admin' -> 'osca_staff') so valid staff are never rejected for using the
+// role name that is actually stored in their account.
+async function getCallerRole(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  user: { id: string; user_metadata?: Record<string, unknown> | null }
+) {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+  return normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
+}
 
 export async function createStaff(formData: FormData) {
   const supabase = await createServerClient();
@@ -11,14 +28,9 @@ export async function createStaff(formData: FormData) {
     return { error: 'UNAUTHORIZED: You must be logged in to provision staff.' };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  const callerRole = profile?.role || user.user_metadata?.role;
+  const callerRole = await getCallerRole(supabase, user);
 
-  if (callerRole !== 'super_admin' && callerRole !== 'osca_head' && callerRole !== 'osca_staff') {
+  if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can create accounts.' };
   }
 
@@ -120,14 +132,9 @@ export async function deleteStaff(staffId: string) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  const callerRole = profile?.role || user.user_metadata?.role;
+  const callerRole = await getCallerRole(supabase, user);
 
-  if (callerRole !== 'super_admin' && callerRole !== 'osca_head' && callerRole !== 'osca_staff') {
+  if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can remove accounts.' };
   }
 
@@ -164,14 +171,9 @@ export async function updateStaff(staffId: string, formData: FormData) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  const callerRole = profile?.role || user.user_metadata?.role;
+  const callerRole = await getCallerRole(supabase, user);
 
-  if (callerRole !== 'super_admin' && callerRole !== 'osca_head' && callerRole !== 'osca_staff') {
+  if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
     return { error: 'FORBIDDEN: Only OSCA Head or OSCA Staff can update accounts.' };
   }
 
@@ -242,14 +244,9 @@ export async function resetStaffPassword(staffId: string) {
     return { error: 'UNAUTHORIZED: You must be logged in.' };
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
-  const callerRole = profile?.role || user.user_metadata?.role;
+  const callerRole = await getCallerRole(supabase, user);
 
-  if (callerRole !== 'osca_head') {
+  if (callerRole !== 'osca_head' && callerRole !== 'super_admin') {
     return { error: 'FORBIDDEN: Only the OSCA Head can reset staff passwords.' };
   }
 

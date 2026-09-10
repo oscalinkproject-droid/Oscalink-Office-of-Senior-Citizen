@@ -105,6 +105,7 @@ export const ROLE_PERMISSIONS: Record<RoleLevel, RolePermissions> = {
 // Without normalization these accounts get silently rejected by proxy.ts and
 // bounced back to /login in an infinite loop after a successful sign-in.
 export const ROLE_ALIASES: Record<string, RoleLevel> = {
+  head: 'osca_head',
   admin: 'osca_staff',
   mswd_officer: 'osca_staff',
   official: 'barangay_official',

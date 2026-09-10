@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerClient as createClient, createAdminClient } from '@/lib/supabase-server';
+import { normalizeRole, OSCA_ROLES } from '@/lib/rbac';
 
 type NotificationTarget = 'all' | 'pensioners' | 'non_pensioners' | 'barangay' | 'barangay_presidents' | 'senior';
 type NotificationType = 'info' | 'success' | 'warning';
@@ -200,8 +201,10 @@ export async function createBroadcast(input: SendNotificationInput) {
       .eq('id', user.id)
       .maybeSingle();
 
-    const isOsca = profile && ['super_admin', 'admin', 'osca_head', 'osca_staff'].includes(profile.role);
-    if (!isOsca) return { error: 'Unauthorized. Only OSCA staff can send broadcasts.' };
+    const callerRole = normalizeRole(profile?.role ?? (user.user_metadata?.role as string | undefined));
+    if (!callerRole || !(OSCA_ROLES as readonly string[]).includes(callerRole)) {
+      return { error: 'Unauthorized. Only OSCA staff can send broadcasts.' };
+    }
 
     if (!input.title.trim() || !input.message.trim()) {
       return { error: 'Title and message are required.' };
