@@ -115,7 +115,7 @@ export const ROLE_ALIASES: Record<string, RoleLevel> = {
 
 export function normalizeRole(raw: unknown): RoleLevel | null {
   if (typeof raw !== 'string') return null;
-  const value = raw.trim();
+  const value = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (!value) return null;
   if ((USER_ROLES as readonly string[]).includes(value)) {
     return value as RoleLevel;

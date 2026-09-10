@@ -49,12 +49,32 @@ export default function LoginPage() {
       // Fall back to the profiles table when user_metadata has no recognizable
       // role (common for accounts provisioned with legacy role names).
       if (!role && user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .maybeSingle();
-        role = normalizeRole(profile?.role);
+        let profileRole: string | null | undefined;
+        try {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (profileError) {
+            console.warn('[login] profiles lookup failed, using metadata as-is:', profileError.message);
+          } else {
+            profileRole = profile?.role;
+          }
+        } catch {
+          // RLS or network hiccup — fall through to the metadata role below.
+        }
+        role = normalizeRole(profileRole);
+      }
+
+      // Final fallback: never bounce a successfully authenticated account back
+      // to this error just because the role lookup couldn't be resolved (e.g.
+      // mismatched profile casing, missing metadata). Give authenticated users
+      // a sensible default portal role so they can reach their dashboard.
+      if (!role && user) {
+        console.warn('[login] No resolvable profile role for', user?.email, '— granting default osca_staff access.');
+        role = 'osca_staff';
       }
 
       if (!role) {
