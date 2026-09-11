@@ -37,10 +37,10 @@ export function MetricCard({ label, value, trend, trendColor = "primary", icon, 
         )}
       </div>
 
-<div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-2">
         <span className="text-3xl font-headline font-bold text-primary">{value}</span>
         {trend && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ring-1 uppercase bg-primary/10 text-primary ring-primary/20">{trend}</span>
+          <span className={trendColors[trendColor]} text-[10px] font-bold uppercase tracking-tighter>{trend}</span>
         )}
       </div>
       {children}
@@ -59,5 +59,5 @@ export function StatusBadge({ status }: { status: string }) {
 export function Table({ children, className = "", ...props }: { children: React.ReactNode; className?: string }) { return <table className={className} {...props}>{children}</table>; }
 export function TableHeader({ children, className = "", ...props }: { children: React.ReactNode; className?: string }) { return <thead className={className} {...props}>{children}</thead>; }
 export function TableRow({ children, className = "", ...props }: { children: React.ReactNode; className?: string }) { return <tr className={className} {...props}>{children}</tr>; }
-export function TableCell({ children, className = "", colSpan, ...props }: { children: React.ReactNode; className?: string; colSpan?: number }) { return <td className={className} colSpan={colSpan} {...props}>{children}</td>; }
+export function TableCell({ children, className = "", ...props }: { children: React.ReactNode; className?: string }) { return <td className={className} {...props}>{children}</td>; }
 export function TableBody({ children, className = "", ...props }: { children: React.ReactNode; className?: string }) { return <tbody className={className} {...props}>{children}</tbody>; }

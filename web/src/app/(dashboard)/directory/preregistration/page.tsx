@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { StatusBadge } from "@/components/ui/data-display";
 import { useToast } from "@/components/ui/toast";
-import { verifyAndForwardPreRegistration } from "@/app/actions/seniors";
-import { ClipboardList, Search, RefreshCw, ArrowRight, BadgeCheck } from "lucide-react";
+import { ClipboardList, Search, RefreshCw, ArrowRight } from "lucide-react";
 
 interface PreRegistration {
   id: string;
@@ -35,7 +34,6 @@ export default function PreRegistrationsPage() {
   const [records, setRecords] = useState<PreRegistration[]>([]);
   const [query, setQuery] = useState("");
   const [barangay, setBarangay] = useState("");
-  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -91,36 +89,21 @@ export default function PreRegistrationsPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return records.filter(r => {
-      if (barangay && r.barangay !== barangay) return false;
-      if (!q) return true;
-      const searchable = [
-        r.full_name,
-        r.registration_id,
-        r.contact_number,
-        r.purok,
-        r.barangay,
-      ].filter(Boolean).join(' ').toLowerCase();
-      return searchable.includes(q);
-    });
-  }, [records, query, barangay]);
+return records.filter(r => {
+    if (barangay && r.barangay !== barangay) return false;
+    if (!q) return true;
+    const searchable = [
+      r.full_name,
+      r.registration_id,
+      r.contact_number,
+      r.purok,
+      r.barangay,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return searchable.includes(q);
+  });
+}, [records, query, barangay]);
 
-  const handleVerify = useCallback(async (id: string) => {
-    if (verifyingId) return;
-    setVerifyingId(id);
-    const result = await verifyAndForwardPreRegistration(id);
-    setVerifyingId(null);
-
-    if (result?.error) {
-      toast(result.error, 'error');
-      return;
-    }
-
-    toast(`${result.senior?.full_name || 'Record'} verified — a reference number was generated and forwarded to the OSCA Head.`, 'success');
-    setRecords((prev) => prev.filter((r) => r.id !== id));
-  }, [verifyingId, toast]);
-
-  if (!authorized) return null;
+if (!authorized) return null;
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -213,17 +196,7 @@ export default function PreRegistrationsPage() {
                     <td className="px-4 py-3 font-mono text-[11px] text-outline">{r.contact_number || '—'}</td>
                     <td className="px-4 py-3 text-xs text-outline">{formatDate(r.created_at)}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status || 'Pending'} /></td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleVerify(r.id)}
-                          disabled={verifyingId === r.id}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-[11px] font-bold transition-all"
-                        >
-                          <BadgeCheck size={13} />
-                          {verifyingId === r.id ? 'Verifying...' : 'Save / Verify'}
-                        </button>
+<td className="px-4 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => router.push(`/directory/register?prefill=${r.id}`)}
@@ -232,8 +205,7 @@ export default function PreRegistrationsPage() {
                           Review / Edit Record
                           <ArrowRight size={13} />
                         </button>
-                      </div>
-                    </td>
+                      </td>
                   </tr>
                 ))}
               </tbody>

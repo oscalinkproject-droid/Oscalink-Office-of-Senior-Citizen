@@ -14,6 +14,7 @@ export type Barangay = typeof COTABATO_BARANGAYS[number];
 
 export const SENIOR_STATUSES = [
   'Pending', 'Pending Barangay', 'Pending OSCA', 'Pending Mayor', 'FOR_HEAD_APPROVAL',
+  'PENDING_HEAD_APPROVAL', 'PRE_REGISTERED',
   'APPROVED', 'REJECTED', 'Active', 'Inactive', 'Deceased', 'Transferred',
   'Disqualified', 'Cancelled', 'Disapproved', 'Archived',
 ] as const;

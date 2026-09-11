@@ -5,7 +5,7 @@ import { ArchiveClient } from './archive-client';
 export const dynamic = 'force-dynamic';
 
 const RECORD_FIELDS =
-  'id, registration_id, full_name, sex, age, barangay, status, transferred_at, deceased_at, inactive_at, decision_reason, created_at';
+  'id, registration_id, full_name, sex, age, barangay, status, transferred_at, deceased_at, inactive_at, decision_reason, created_at, death_certificate_url';
 
 export default async function ArchivePage() {
   const supabase = await createClient();
@@ -26,12 +26,12 @@ export default async function ArchivePage() {
     supabase
       .from('seniors')
       .select(RECORD_FIELDS)
-      .in('status', ['Transferred', 'Cancelled'])
+      .in('status', ['Transferred', 'Cancelled', 'Disqualified', 'Inactive'])
       .order('transferred_at', { ascending: false, nullsFirst: false }),
     supabase
       .from('seniors')
       .select(RECORD_FIELDS)
-      .eq('status', 'Deceased')
+      .or('status.eq.Deceased,status.eq.DECEASED,status.eq.deceased')
       .order('deceased_at', { ascending: false, nullsFirst: false }),
     supabase
       .from('legacy_documents')

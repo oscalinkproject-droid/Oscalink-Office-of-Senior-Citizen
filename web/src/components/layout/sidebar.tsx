@@ -12,6 +12,7 @@ import {
   Ban,
   Megaphone,
   ShieldCheck,
+  ShieldAlert,
   BarChart3,
   Archive,
   CircleHelp,
@@ -59,6 +60,7 @@ const navSections: NavSection[] = [
       { name: "Pre-Registrations", href: "/directory/preregistration", icon: ClipboardList, oscaStaffOnly: true },
       { name: "Seniors by Barangay", href: "/seniors/by-barangay", icon: MapPin, oscaOnly: true, matchDescendants: true },
       { name: "Declined Records", href: "/declined", icon: Ban, staffOnly: true },
+      { name: "Corrections & Appeals", href: "/corrections", icon: ShieldAlert, staffOnly: true },
     ],
   },
   {

@@ -59,8 +59,6 @@ export async function createSenior(formData: FormData) {
     }
   }
 
-  const registrationId = (formData.get('registration_id') as string)?.trim() || '';
-
   function generateRefNumber(base?: string): string {
     if (base) return base;
     const d = birthdate ? new Date(birthdate + 'T00:00:00') : new Date();
@@ -69,9 +67,22 @@ export async function createSenior(formData: FormData) {
     return `REF-${yyyymmdd}-${randomSuffix}`;
   }
 
+// Determine status based on document completeness
+  const docUrls = [
+    formData.get('profile_photo_url') as string | null,
+    formData.get('birth_certificate_url') as string | null,
+    formData.get('voter_id_url') as string | null,
+    formData.get('digital_signature_url') as string | null,
+  ];
+  const allDocsProvided = docUrls.every((u) => u && u.trim() !== '');
+
+  // Choose status: complete docs → PENDING_HEAD_APPROVAL, missing docs → PRE_REGISTERED
+  // Choose status: complete docs → PENDING_HEAD_APPROVAL, missing docs → PRE_REGISTERED
+  const status = allDocsProvided ? 'PENDING_HEAD_APPROVAL' : 'PRE_REGISTERED';
+
   // Atomic insert with retry on unique violation
   const MAX_RETRIES = 5;
-  let finalRegistrationId = generateRefNumber(registrationId);
+  let finalRegistrationId = generateRefNumber();
   let senior: { id: string; registration_id: string; full_name: string } | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -123,7 +134,7 @@ export async function createSenior(formData: FormData) {
       pensioner_type: (formData.get('pensioner_type') as string) || null,
       is_voter: formData.get('is_voter') === 'true',
       place_of_birth: formData.get('place_of_birth') as string || null,
-      status: formData.get('status') as string || 'Pending',
+      status: status,
     };
 
     try {
@@ -928,7 +939,7 @@ export async function resubmitApplication(id: string, formData: FormData) {
 // OSCA Staff completes a mobile pre-registration (status 'Pending'): the partial
 // record is filled out, a unique REF-YYYYMMDD-NNNN reference number is generated,
 // the reference is linked to the record for mobile login, and the status moves
-// to 'FOR_HEAD_APPROVAL' so it appears in the OSCA Head's approvals queue.
+// to 'Pending OSCA' (for final) or 'Pending' (for draft) so it appears in the OSCA Head's approvals queue.
 export async function completePreRegistration(id: string, formData: FormData) {
   const supabase = await createClient();
 
@@ -962,6 +973,9 @@ export async function completePreRegistration(id: string, formData: FormData) {
   if (currentStatus !== 'pending') {
     return { error: 'Only PENDING pre-registrations can be completed and forwarded for head approval.' };
   }
+
+  // Check if this is a draft save
+  const isDraft = formData.get('save_as_draft') === 'true';
 
   const birthdate = (formData.get('birthdate') as string) || null;
   const barangay = (formData.get('barangay') as string) || '';
@@ -1065,7 +1079,8 @@ export async function completePreRegistration(id: string, formData: FormData) {
   // Generate a fresh unique REF-YYYYMMDD-NNNN reference number and validate the
   // completed payload with the same schema used for a New Record.
   let registrationId = generateRefNumber();
-  const validationPayload = { ...data, registration_id: registrationId, status: 'FOR_HEAD_APPROVAL' };
+  const targetStatus = isDraft ? 'Pending' : 'Pending OSCA';
+  const validationPayload = { ...data, registration_id: registrationId, status: targetStatus };
   try {
     createSeniorSchema.parse(validationPayload);
   } catch (e) {
@@ -1087,7 +1102,7 @@ export async function completePreRegistration(id: string, formData: FormData) {
     const updates: Record<string, unknown> = {
       ...data,
       registration_id: registrationId,
-      status: 'FOR_HEAD_APPROVAL',
+      status: isDraft ? 'Pending' : 'Pending OSCA',
       decision_reason: null,
       decision_note: null,
       disqualification_indicators: null,
@@ -1097,8 +1112,6 @@ export async function completePreRegistration(id: string, formData: FormData) {
       disqualified_at: null,
       benefits_eligible: true,
       osca_approved: false,
-      completed_by: user.id,
-      completed_at: now,
     };
 
     const { error } = await supabase
@@ -1143,7 +1156,7 @@ export async function completePreRegistration(id: string, formData: FormData) {
     console.error('[PREREG] Auth user creation error:', err);
   }
 
-  await logAudit(supabase, user, role, 'senior_completed_preregistration', id, { ...data, registration_id: registrationId, status: 'FOR_HEAD_APPROVAL' });
+  await logAudit(supabase, user, role, 'senior_completed_preregistration', id, { ...data, registration_id: registrationId, status: isDraft ? 'Pending' : 'Pending OSCA' });
 
   revalidatePath('/directory');
   revalidatePath('/directory/preregistration');
@@ -1247,7 +1260,7 @@ export async function verifyAndForwardPreRegistration(id: string) {
       const now = new Date().toISOString();
       const updates: Record<string, unknown> = {
         registration_id: registrationId,
-        status: 'FOR_HEAD_APPROVAL',
+        status: 'Pending OSCA',
         age,
         classification,
         decision_reason: null,
@@ -1259,8 +1272,6 @@ export async function verifyAndForwardPreRegistration(id: string) {
         disqualified_at: null,
         benefits_eligible: true,
         osca_approved: false,
-        completed_by: user.id,
-        completed_at: now,
       };
 
       const { error } = await supabase
@@ -1306,7 +1317,7 @@ export async function verifyAndForwardPreRegistration(id: string) {
     }
 
     await logAudit(supabase, user, role, 'senior_completed_preregistration', id, {
-      status: 'FOR_HEAD_APPROVAL',
+      status: 'Pending OSCA',
       registration_id: registrationId,
     });
 

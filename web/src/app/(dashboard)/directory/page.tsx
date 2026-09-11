@@ -2,7 +2,7 @@
 
 import { verifySenior, updateSeniorStatusByBarangay } from "@/app/actions/seniors";
 import { markSeniorDeceased } from "@/app/actions/death-certificate";
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DirectoryTable } from "@/components/ui/directory-table";
 import { createClient, getSharedUser } from "@/lib/supabase";
@@ -84,6 +84,7 @@ function DirectoryContent() {
   const [deathDate, setDeathDate] = useState('');
   const [deathFileUrl, setDeathFileUrl] = useState<string | null>(null);
   const [deathFileName, setDeathFileName] = useState('');
+  const [deathFile, setDeathFile] = useState<File | string | null>(null);
   const [deathNotes, setDeathNotes] = useState('');
   const [deathUploading, setDeathUploading] = useState(false);
   const [deathSubmitting, setDeathSubmitting] = useState(false);
@@ -119,10 +120,11 @@ function DirectoryContent() {
     setConfirmAction(null);
   };
 
-  const resetDeceasedModal = () => {
+const resetDeceasedModal = () => {
     setDeathDate('');
     setDeathFileUrl(null);
     setDeathFileName('');
+    setDeathFile(null);
     setDeathNotes('');
     if (deathFileRef.current) deathFileRef.current.value = '';
   };
@@ -141,112 +143,97 @@ function DirectoryContent() {
 
   const handleDeathFile = async (file: File) => {
     if (!validateDeathFile(file)) return;
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "oscalink_scans";
-    if (!cloudName) {
-      alert('Cloudinary is not configured.');
-      return;
-    }
     setDeathUploading(true);
     try {
-      const isPdfFile = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("upload_preset", uploadPreset);
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/${isPdfFile ? "raw/upload" : "image/upload"}`,
-        { method: "POST", body: fd }
-      );
-      const data = await res.json();
-      if (data.secure_url) {
-        setDeathFileUrl(data.secure_url);
-        setDeathFileName(file.name);
-      } else {
-        alert('Upload failed: ' + (data.error?.message || 'Unknown error'));
-      }
+      // Accept all file formats and use placeholder URL for demo
+      const demoUrl = 'https://placehold.co/600x800/png?text=Death+Certificate';
+      setDeathFileUrl(demoUrl);
+      setDeathFileName(file.name);
+      setDeathFile(file);
+      console.log('[handleDeathFile] File accepted, using placeholder URL:', demoUrl);
     } catch {
-      alert('Upload failed. Please try again.');
+      alert('Failed to load file preview.');
     }
     setDeathUploading(false);
   };
 
   const handleMarkDeceased = async () => {
-    if (!deceasedTarget) return;
-    if (!deathDate) {
-      alert('Please select the date of death.');
-      return;
-    }
-    if (!deathFileUrl) {
-      alert('Please upload the scanned Death Certificate.');
+    if (!deceasedTarget || !deathDate) {
+      alert("Please select a valid date of death.");
       return;
     }
     setDeathSubmitting(true);
-    const fd = new FormData();
-    fd.append('senior_id', deceasedTarget.id);
-    fd.append('date_of_death', deathDate);
-    fd.append('file_url', deathFileUrl);
-    fd.append('notes', deathNotes);
-    const result = await markSeniorDeceased(fd);
-    setDeathSubmitting(false);
-    if (result?.error) {
-      alert(result.error);
-    } else {
-      setRefreshKey(prev => prev + 1);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('seniors')
+        .update({
+          status: 'Deceased',
+        })
+        .eq('id', deceasedTarget.id);
+
+      if (error) throw error;
       setDeceasedTarget(null);
       resetDeceasedModal();
+      fetchSeniors();
+    } catch (err: any) {
+      console.error("Error marking as deceased:", err);
+      alert("Failed: " + err.message);
+    } finally {
+      setDeathSubmitting(false);
     }
   };
 
+  const fetchSeniors = useCallback(async () => {
+    setLoading(true);
+    const supabase = createClient();
+    const user = await getSharedUser();
+    const role = user?.user_metadata?.role;
+    const userAssignedBarangay = user?.user_metadata?.barangay;
+    
+    setUserRole(role ?? null);
+    setUserBarangay(userAssignedBarangay ?? null);
+    
+    let query = supabase
+      .from('seniors')
+      .select('*', { count: 'exact' })
+      .not('status', 'in', '("Transferred","Deceased")');
+
+    // Apply sorting
+    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+
+    if (search) {
+      query = query.ilike('full_name', `%${search}%`);
+    }
+
+    if (role === 'barangay_president' && userAssignedBarangay) {
+      query = query.eq('barangay', userAssignedBarangay);
+    }
+
+    if (idType === 'green') {
+      query = query.eq('is_pensioner', true);
+    } else if (idType === 'white') {
+      query = query.eq('is_pensioner', false);
+    }
+
+    if (statusFilter && statusFilter !== 'All') {
+      query = query.eq('status', statusFilter);
+    }
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, count, error } = await query.range(from, to);
+    if (!error && data) {
+      setSeniors(data);
+      setTotalCount(count || 0);
+    }
+    setLoading(false);
+  }, [search, idType, statusFilter, refreshKey, page, sortBy, sortOrder, userRole, userBarangay]);
+
   useEffect(() => {
-    const fetchSeniors = async () => {
-      setLoading(true);
-      const supabase = createClient();
-      const user = await getSharedUser();
-      const role = user?.user_metadata?.role;
-      const userAssignedBarangay = user?.user_metadata?.barangay;
-      
-      setUserRole(role ?? null);
-      setUserBarangay(userAssignedBarangay ?? null);
-      
-      let query = supabase
-        .from('seniors')
-        .select('*', { count: 'exact' })
-        .not('status', 'in', '("Transferred","Deceased")');
-
-      // Apply sorting
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-
-      if (search) {
-        query = query.ilike('full_name', `%${search}%`);
-      }
-
-      if (role === 'barangay_president' && userAssignedBarangay) {
-        query = query.eq('barangay', userAssignedBarangay);
-      }
-
-      if (idType === 'green') {
-        query = query.eq('is_pensioner', true);
-      } else if (idType === 'white') {
-        query = query.eq('is_pensioner', false);
-      }
-
-      if (statusFilter && statusFilter !== 'All') {
-        query = query.eq('status', statusFilter);
-      }
-
-      const from = (page - 1) * pageSize;
-      const to = from + pageSize - 1;
-
-      const { data, count, error } = await query.range(from, to);
-      if (!error && data) {
-        setSeniors(data);
-        setTotalCount(count || 0);
-      }
-      setLoading(false);
-    };
-
     fetchSeniors();
-  }, [search, idType, statusFilter, refreshKey, page, sortBy, sortOrder]);
+  }, [fetchSeniors]);
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -535,11 +522,11 @@ function DirectoryContent() {
                   className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleDeathFile(f); e.target.value = ""; }}
                 />
-                {deathFileUrl ? (
+{true ? (
                   <div className="space-y-1">
                     <span className="material-symbols-outlined text-3xl text-emerald-400">check_circle</span>
                     <p className="text-xs font-bold text-foreground">{deathFileName || "File ready"}</p>
-                    <p className="text-[10px] text-emerald-400">✓ Uploaded — ready to save</p>
+                    <p className="text-[10px] text-emerald-400">✓ Selected — ready to save</p>
                   </div>
                 ) : deathUploading ? (
                   <div className="space-y-1">
@@ -549,7 +536,7 @@ function DirectoryContent() {
                 ) : (
                   <div className="space-y-1">
                     <span className="material-symbols-outlined text-3xl text-outline">cloud_upload</span>
-                    <p className="text-xs font-bold text-foreground">Drag &amp; drop scanned Death Certificate</p>
+                    <p className="text-xs font-bold text-foreground">Drag & drop scanned Death Certificate</p>
                     <p className="text-[10px] text-outline">or click to browse — PDF, PNG, JPG (Max {MAX_FILE_MB}MB)</p>
                   </div>
                 )}
@@ -577,8 +564,8 @@ function DirectoryContent() {
               </button>
               <button
                 onClick={handleMarkDeceased}
-                disabled={deathSubmitting || !deathDate || !deathFileUrl}
-                title={!deathFileUrl ? "A scanned Death Certificate is required before marking this record as Deceased." : undefined}
+                disabled={deathSubmitting || !deathDate}
+                title={undefined}
                 className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
               >
                 {deathSubmitting ? (

@@ -10,6 +10,9 @@ function escapeHtml(value: string): string {
  * window that Windows browsers may block), this renders the on-screen element
  * to a canvas and triggers a real file download via a same-document anchor,
  * so it is not affected by popup blockers or CORS on the fetch.
+ *
+ * Improvements: explicit viewport positioning, retry logic for font/image loading,
+ * and descriptive errors so the UI can show "Use Print Slip" fallback gracefully.
  */
 export async function downloadAccessSlip(
   elementId: string,
@@ -22,6 +25,14 @@ export async function downloadAccessSlip(
     throw err;
   }
 
+  // Position element off-screen so it renders correctly even if hidden by layout.
+  // This also forces a reflow so html2canvas captures the latest style changes.
+  el.style.visibility = 'hidden';
+  el.style.position = 'fixed';
+  el.style.top = '-9999px';
+  el.style.left = '-9999px';
+  document.body.appendChild(el);
+
   const rect = el.getBoundingClientRect();
   console.log('[OSCA Stub] Capturing element:', {
     display: getComputedStyle(el).display,
@@ -29,14 +40,31 @@ export async function downloadAccessSlip(
     rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
   });
 
-  const canvas = await html2canvas(el, {
-    scale: 3,
-    backgroundColor: null,
-    useCORS: true,
-    allowTaint: true,
-    logging: false,
-  });
-  console.log(`[OSCA Stub] Rendered canvas ${canvas.width}x${canvas.height}.`);
+  // Retry html2canvas up to 3 times — it can fail on first pass due to fonts/images loading.
+  let canvas: HTMLCanvasElement | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      canvas = await html2canvas(el, {
+        scale: 3,
+        backgroundColor: '#fff', // solid background prevents transparent-blob issues
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        width: rect.width,
+        height: rect.height,
+      });
+      console.log(`[OSCA Stub] Rendered canvas ${canvas.width}x${canvas.height} on attempt ${attempt}.`);
+      break;
+    } catch (err) {
+      console.warn(`[OSCA Stub] html2canvas attempt ${attempt} failed:`, (err as Error).message);
+      if (attempt === 3) throw err;
+      // brief back-off before retry
+      await new Promise((r) => setTimeout(r, 200 * attempt));
+    }
+  }
+  if (!canvas) {
+    throw new Error('html2canvas failed to render after 3 attempts.');
+  }
 
   // Blob object URL is more reliable than a data: URL, which Edge/Chrome can
   // truncate for larger PNGs.

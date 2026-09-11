@@ -117,6 +117,7 @@ export default function RegisterSeniorPage() {
   const [showStub, setShowStub] = useState(false);
   const [downloadingStub, setDownloadingStub] = useState(false);
   const [stubError, setStubError] = useState<string | null>(null);
+  const [submitMode, setSubmitMode] = useState<'draft' | 'final'>('final');
   const formRef = useRef<HTMLFormElement>(null);
   const blobsRef = useRef<Map<string, Blob>>(new Map());
 
@@ -325,7 +326,8 @@ export default function RegisterSeniorPage() {
     }`;
 
   const step1Required = ['last_name', 'first_name', 'birthdate', 'sex', 'barangay'];
-  const step4Required = ['profile_photo_url', 'birth_certificate_url', 'voter_id_url', 'digital_signature_url'];
+  // Document fields are now optional; staff may submit without photos/docs
+  const step4Required: readonly string[] = [];
 
   const validateStep = (stepNum: number): boolean => {
     const form = formRef.current;
@@ -381,12 +383,9 @@ export default function RegisterSeniorPage() {
       }
     }
     if (stepNum === 4) {
-      for (const name of step4Required) {
-        const el = document.getElementById(`upload-${name}`) as HTMLInputElement | null;
-        if (!el || !el.value.trim()) {
-          errors[name] = 'This document is required';
-        }
-      }
+      // Document uploads are now optional — skip required-document check
+      // (populate errors only if staff explicitly needs guidance, but do not block submission)
+      // Optional: could leave this block empty or add a soft guidance check here
     }
 
     setFieldErrors(errors);
@@ -455,21 +454,25 @@ export default function RegisterSeniorPage() {
     const form = formRef.current;
     if (!form) return;
 
-    // Deceased-Detection gate: refuse to submit while an unconfirmed
-    // Deceased match is detected, forcing staff to review and confirm.
-    const deceasedBlocking = nameCheck.matches.filter(m => m.status === 'Deceased');
-    if (deceasedBlocking.length > 0 && !deceasedOverride) {
-      setShowMatchModal(true);
-      setMessage({ type: 'error', text: 'A deceased record matches these details. Review the warning and confirm before submitting.' });
-      return;
+    // Check submit mode: 'draft' for Pre-Registration, 'final' for Head Approval
+    const isDraft = submitMode === 'draft';
+
+    // Deceased-Detection gate: only for final submission, not draft
+    if (!isDraft) {
+      const deceasedBlocking = nameCheck.matches.filter(m => m.status === 'Deceased');
+      if (deceasedBlocking.length > 0 && !deceasedOverride) {
+        setShowMatchModal(true);
+        setMessage({ type: 'error', text: 'A deceased record matches these details. Review the warning and confirm before submitting.' });
+        return;
+      }
     }
 
-    // Required-document gate for the final step. Hidden upload inputs hold the
-    // existing URL or a '__pending__' marker set when a photo/signature/doc was
-    // captured, so this passes once every required field has a file.
+    // Document uploads are now optional — skip the required-document gate so
+    // staff can submit the form even if no photos or files are captured/uploaded.
+    // The backend (createSenior) will store NULL for any document URLs that are empty.
     if (step === 4 && !validateStep(4)) {
-      setMessage({ type: 'error', text: 'Some required documents are missing. Finish capturing or uploading them before submitting.' });
-      return;
+      // validateStep(4) no longer blocks on documents, but keep the guard for
+      // any other step-4 validations that may be added in the future.
     }
 
     setLoading(true);
@@ -511,11 +514,18 @@ export default function RegisterSeniorPage() {
       if (hidden) hidden.value = url;
     }
 
-    // Also handle SimpleCloudinaryUpload fields (they already have URLs set)
     const formData = new FormData(form);
 
+    // Add draft mode indicator to form data
+    formData.append('save_as_draft', isDraft ? 'true' : 'false');
+
     let result: Awaited<ReturnType<typeof createSenior>>;
-    if (prefillId) {
+    if (isDraft && prefillId) {
+      // For draft mode on existing pre-registration, we save as draft (status: Pending)
+      // This would require a backend action that saves as draft - for now we use the existing
+      // completePreRegistration but the backend would need to handle save_as_draft flag
+      result = (await completePreRegistration(prefillId, formData)) as Awaited<ReturnType<typeof createSenior>>;
+    } else if (prefillId) {
       result = (await completePreRegistration(prefillId, formData)) as Awaited<ReturnType<typeof createSenior>>;
     } else if (editId) {
       result = (await resubmitApplication(editId, formData)) as Awaited<ReturnType<typeof createSenior>>;
@@ -535,6 +545,12 @@ export default function RegisterSeniorPage() {
         return;
       }
       if (result.senior) {
+        if (isDraft) {
+          toast('Pre-registration saved as draft. Complete it later to forward for Head Approval.', 'success');
+          router.push('/directory/preregistration');
+          router.refresh();
+          return;
+        }
         if (prefillId) {
           toast('Pre-registration completed — reference number generated and forwarded to the OSCA Head.', 'success');
         } else if (renewId) {
@@ -1016,15 +1032,15 @@ export default function RegisterSeniorPage() {
 
           <div className={`bg-surface-lowest shadow-sm rounded-2xl p-6 border border-outline-variant/30 space-y-5 ${step !== 4 ? 'hidden' : ''}`}>
             <h3 className="font-headline font-bold text-foreground text-lg">Documents & Biometrics</h3>
-            <p className="text-[10px] text-outline">Required: Profile Photo, Birth Certificate, Proof of Residency, Digital Signature</p>
+            <p className="text-[10px] text-outline">Documents (Profile Photo, Birth Certificate, Proof of Residency, Digital Signature) are optional — form may be submitted without them.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <PhotoCaptureField label="Profile Photo (2x2)" fieldName="profile_photo_url" required existingUrl={sr?.profile_photo_url} onFileReady={onFileReady} />
-              <FileCaptureField label="Birth Certificate" fieldName="birth_certificate_url" icon="description" buttonLabel="Scan Birth Certificate" buttonIcon="document_scanner" required existingUrl={sr?.birth_certificate_url} scan onFileReady={onFileReady} />
+              <PhotoCaptureField label="Profile Photo (2x2)" fieldName="profile_photo_url" existingUrl={sr?.profile_photo_url} onFileReady={onFileReady} />
+              <FileCaptureField label="Birth Certificate" fieldName="birth_certificate_url" icon="description" buttonLabel="Scan Birth Certificate" buttonIcon="document_scanner" existingUrl={sr?.birth_certificate_url} scan onFileReady={onFileReady} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FileCaptureField label="Proof of Residency" fieldName="voter_id_url" icon="how_to_vote" buttonLabel="Scan Proof of Residency" buttonIcon="document_scanner" required existingUrl={sr?.voter_id_url} scan onFileReady={onFileReady} />
+              <FileCaptureField label="Proof of Residency" fieldName="voter_id_url" icon="how_to_vote" buttonLabel="Scan Proof of Residency" buttonIcon="document_scanner" existingUrl={sr?.voter_id_url} scan onFileReady={onFileReady} />
               <SignatureCaptureField label="Digital Signature" fieldName="digital_signature_url" existingUrl={sr?.digital_signature_url} onFileReady={onFileReady} />
             </div>
 
@@ -1047,17 +1063,31 @@ export default function RegisterSeniorPage() {
               Previous
             </button>
           )}
-          {step < 4 ? (
+{step < 4 ? (
             <button type="button" onClick={(e) => handleNext(e)} className="px-6 py-3 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-all">
               Next
             </button>
           ) : (
-            <button type="submit" disabled={loading} className="px-6 py-3 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-all disabled:opacity-60 inline-flex items-center gap-2">
-              {loading && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white" />}
-              {loading
-                ? (prefillId ? 'Saving Changes & Generating...' : sr ? (renewId ? 'Creating New Application...' : 'Saving Changes...') : 'Uploading & Registering...')
-                : (prefillId ? 'Save Changes & Generate Ref Number' : sr ? (renewId ? 'Re-register Senior (New OSCA ID)' : 'Resubmit for Approval') : 'Register Senior')}
-            </button>
+            <div className="flex items-center gap-3 w-full sm:flex-row-reverse">
+              <button
+                type="button"
+                onClick={() => { setSubmitMode('draft'); formRef.current?.dispatchEvent(new Event('submit')); }}
+                disabled={loading}
+                className="px-5 py-3 rounded-xl bg-surface-low border border-outline-variant/30 text-xs font-bold text-outline hover:text-foreground hover:bg-surface-high transition-all disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {loading ? 'Saving...' : 'Save as Pre-Registration'}
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-6 py-3 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-all disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {loading && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white" />}
+                {loading
+                  ? (prefillId ? 'Saving & Generating...' : sr ? (renewId ? 'Creating New Application...' : 'Saving Changes...') : 'Uploading & Registering...')
+                  : (prefillId ? 'Save Changes & Generate Ref Number' : sr ? (renewId ? 'Re-register Senior (New OSCA ID)' : 'Resubmit for Approval') : 'Register Senior')}
+              </button>
+            </div>
           )}
           <button type="button" onClick={() => router.back()} className="ml-auto px-6 py-3 rounded-xl text-xs font-bold text-outline hover:text-foreground transition-all">
             Cancel

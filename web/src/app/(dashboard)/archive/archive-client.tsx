@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { deleteLegacyDocument } from "@/app/actions/legacy-documents";
@@ -8,6 +8,8 @@ import { cancelSeniorAccount } from "@/app/actions/cancel-account";
 import { restoreSeniorToActive } from "@/app/actions/restore-senior";
 import { generatePDF, generateExcel, generateCSV } from "@/lib/exports";
 import { useToast } from "@/components/ui/toast";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const DEATH_CERTIFICATE_TYPE = "Death Certificate";
 
@@ -24,6 +26,7 @@ interface ArchiveRecord {
   inactive_at: string | null;
   decision_reason: string | null;
   created_at: string | null;
+  death_certificate_url: string | null;
 }
 
 interface LegacyDoc {
@@ -46,6 +49,12 @@ function formatDate(value: string | null): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatDateOfDeath(record: ArchiveRecord): string {
+  // Fallback: deceased_at -> inactive_at -> updated_at -> created_at
+  const dateValue = record.deceased_at || record.inactive_at || record.transferred_at || record.created_at;
+  return formatDate(dateValue);
 }
 
 function isPdf(url: string): boolean {
@@ -80,10 +89,20 @@ export function ArchiveClient({
   const [docs, setDocs] = useState<LegacyDoc[]>(initialDocs);
   const [docsLoading, setDocsLoading] = useState(false);
 
+  // ---- Certified deceased state (from seniors table with death_certificate_url) ----
+  const [certifiedDeceased, setCertifiedDeceased] = useState<ArchiveRecord[]>([]);
+  const [certifiedLoading, setCertifiedLoading] = useState(false);
+
   // ---- Document vault filters ----
   const [docSearch, setDocSearch] = useState("");
   const [previewDoc, setPreviewDoc] = useState<LegacyDoc | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LegacyDoc | null>(null);
+
+  // ---- Upload certificate modal ----
+  const [uploadTarget, setUploadTarget] = useState<ArchiveRecord | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // ---- Cancel account ----
   const [cancelTarget, setCancelTarget] = useState<ArchiveRecord | null>(null);
@@ -173,6 +192,29 @@ export function ArchiveClient({
     setDocsLoading(false);
   }, []);
 
+  // ---- Load certified deceased (from seniors table with death_certificate_url) ----
+  const loadCertifiedDeceased = useCallback(async () => {
+    setCertifiedLoading(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("seniors")
+      .select("id, registration_id, full_name, barangay, deceased_at, inactive_at, created_at, death_certificate_url")
+      .eq("status", "Deceased")
+      .not("death_certificate_url", "is", null)
+      .order("deceased_at", { ascending: false, nullsFirst: false });
+    if (data) setCertifiedDeceased(data as ArchiveRecord[]);
+    setCertifiedLoading(false);
+  }, []);
+
+  // ---- Load all data ----
+  const loadAll = useCallback(async () => {
+    await Promise.all([loadDocs(), loadCertifiedDeceased()]);
+  }, [loadDocs, loadCertifiedDeceased]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
   // ---- Delete document ----
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -213,6 +255,69 @@ export function ArchiveClient({
     }
     setRestoreLoading(false);
     setRestoreTarget(null);
+  };
+
+  // ---- Upload Certificate ----
+  const handleUploadClick = (record: ArchiveRecord) => {
+    setUploadTarget(record);
+    setUploadFile(null);
+    setUploadError(null);
+  };
+
+  const handleUploadFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
+        setUploadError("Only PDF, PNG, or JPG files are allowed.");
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setUploadError("File size must be less than 5MB.");
+        return;
+      }
+      setUploadFile(file);
+      setUploadError(null);
+    }
+  };
+
+  const handleUploadSubmit = async () => {
+    if (!uploadTarget || !uploadFile) return;
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const supabase = createClient();
+      // Upload to storage
+      const fileExt = uploadFile.name.split(".").pop();
+      const fileName = `${uploadTarget.id}-${Date.now()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("death-certificates")
+        .upload(`public/${fileName}`, uploadFile, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("death-certificates")
+        .getPublicUrl(uploadData.path);
+
+      // Update senior record with death_certificate_url
+      const supabaseClient = createClient();
+      const { error: updateError } = await supabaseClient
+        .from("seniors")
+        .update({ death_certificate_url: publicUrl })
+        .eq("id", uploadTarget.id);
+
+      if (updateError) throw updateError;
+
+      toast("Death certificate uploaded and linked successfully.", "success");
+      setUploadTarget(null);
+      setUploadFile(null);
+      setUploadError(null);
+      loadCertifiedDeceased();
+      loadDocs();
+    } catch (err: any) {
+      setUploadError(err.message || "Upload failed. Please try again.");
+    } finally {
+      setUploadLoading(false);
+    }
   };
 
   // ---- Record exports ----
@@ -554,46 +659,56 @@ export function ArchiveClient({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className="border-b border-outline-variant/10 text-[10px] uppercase tracking-widest text-outline">
-                          <th className="px-5 py-3 font-bold">OSCA ID / Registration ID</th>
-                          <th className="px-5 py-3 font-bold">Full Name</th>
-                          <th className="px-5 py-3 font-bold">Barangay</th>
-                          <th className="px-5 py-3 font-bold">Date of Death</th>
-                          <th className="px-5 py-3 font-bold">Action</th>
+                        <tr className="bg-surface-low border-b border-outline-variant/10 text-[10px] uppercase tracking-widest text-outline">
+                          <th className="px-4 py-3 text-left font-semibold text-xs tracking-wider w-[180px] whitespace-nowrap">OSCA ID / Reg ID</th>
+                          <th className="px-4 py-3 text-left font-semibold text-xs tracking-wider w-[220px]">Full Name</th>
+                          <th className="px-4 py-3 text-left font-semibold text-xs tracking-wider w-[150px]">Barangay</th>
+                          <th className="px-4 py-3 text-left font-semibold text-xs tracking-wider w-[160px]">Date of Death</th>
+                          <th className="px-4 py-3 text-left font-semibold text-xs tracking-wider w-[220px]">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant/10">
                         {filteredDeceased.map((r) => {
                           const doc = r.id ? deceasedDocMap.get(r.id) : undefined;
+                          const hasCertOnRecord = !!r.death_certificate_url;
+                          const hasAnyCert = !!doc || hasCertOnRecord;
+                          const certUrl = doc?.file_url || r.death_certificate_url;
                           return (
                             <tr key={r.id} className="hover:bg-surface-low/60 transition-colors">
-                              <td className="px-5 py-3 font-mono text-[11px] text-outline">{r.registration_id || "—"}</td>
-                              <td className="px-5 py-3 text-xs font-bold text-foreground">{r.full_name || "—"}</td>
-                              <td className="px-5 py-3 text-xs text-muted-foreground">{r.barangay || "—"}</td>
-                              <td className="px-5 py-3 text-xs text-muted-foreground">{formatDate(r.deceased_at)}</td>
-                              <td className="px-5 py-3">
-                                {doc ? (
-                                  <button
-                                    onClick={() => setPreviewDoc(doc)}
-                                    title="Open this senior's Death Certificate to view or download it"
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 transition-colors whitespace-nowrap"
-                                  >
-                                    <span className="material-symbols-outlined text-[12px]">visibility</span>
-                                    View/Download Death Certificate
-                                  </button>
-                                ) : (
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span className="text-[10px] text-outline/60 font-semibold whitespace-nowrap">No certificate</span>
+                              <td className="px-4 py-3 font-mono text-[11px] text-outline whitespace-nowrap">{r.registration_id || "—"}</td>
+                              <td className="px-4 py-3 text-xs font-bold text-foreground max-w-[200px] truncate">{r.full_name || "—"}</td>
+                              <td className="px-4 py-3 text-xs text-muted_foreground max-w-[130px] truncate">{r.barangay || "—"}</td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateOfDeath(r)}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-col sm:flex-row items-center gap-2">
+                                  {hasAnyCert && certUrl ? (
                                     <button
-                                      onClick={() => setRestoreTarget(r)}
-                                      title="Restore this senior to Active and return them to the main Seniors Directory"
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                                      onClick={() => setPreviewDoc({ ...doc, file_url: certUrl, full_name: r.full_name, registration_id: r.registration_id } as LegacyDoc)}
+                                      title="Open this senior's Death Certificate to view or download it"
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 transition-colors whitespace-nowrap"
                                     >
-                                      <span className="material-symbols-outlined text-[12px]">restore</span>
-                                      Revert to Active
+                                      <span className="material-symbols-outlined text-[12px]">visibility</span>
+                                      View/Download Death Certificate
                                     </button>
-                                  </div>
-                                )}
+                                  ) : (
+                                    <Button
+                                      variant="outline"
+                                      onClick={() => handleUploadClick(r)}
+                                      className="w-full sm:w-auto"
+                                    >
+                                      <span className="material-symbols-outlined text-[12px]">cloud_upload</span>
+                                      Upload Certificate
+                                    </Button>
+                                  )}
+                                  <button
+                                    onClick={() => setRestoreTarget(r)}
+                                    title="Restore this senior to Active and return them to the main Seniors Directory"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px]">restore</span>
+                                    Revert to Active
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
