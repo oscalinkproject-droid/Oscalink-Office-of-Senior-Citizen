@@ -3,31 +3,40 @@ export const dynamic = 'force-dynamic';
 import { createServerClient as createClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { ApprovalsClient } from "./approvals-client";
+import { PENDING_STATUSES } from "@/lib/senior-status";
 
 // The OSCA Head's "Pending Verifications" queue has three tabs:
-//  - Pending      → pre-registrations completed by OSCA Staff (FOR_HEAD_APPROVAL)
+//  - Pending (FOR_HEAD_APPROVAL) → pre-registrations completed by OSCA Staff
 //  - Disapproved  → prior decisions (status 'Disapproved')
 //  - Disqualified → prior decisions (status 'Disqualified')
 // The Head is a read-only reviewer here; the only write action is the final
 // decision (Approve + issue OSCA ID / Disapprove / Disqualify).
 async function getSeniors() {
   const supabase = await createClient();
-  const { data: seniors } = await supabase
+  const { data: seniors, error } = await supabase
     .from('seniors')
     .select('*')
-    .in('status', ['FOR_HEAD_APPROVAL', 'Disapproved', 'Disqualified'])
+    .in('status', [...PENDING_STATUSES, 'Disapproved', 'Disqualified'])
     .order('created_at', { ascending: false });
 
+  if (error) {
+    console.error('[APPROVALS] Fetch error:', error);
+    return [];
+  }
   return seniors || [];
 }
 
 async function getHeadSignature() {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .select('signature_url, full_name')
     .eq('role', 'osca_head')
     .maybeSingle();
+  if (error) {
+    console.error('[APPROVALS] Head profile fetch error:', error);
+    return null;
+  }
   return data || null;
 }
 

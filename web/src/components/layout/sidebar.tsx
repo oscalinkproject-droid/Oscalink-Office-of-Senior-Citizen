@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { useAuthRole } from "@/lib/use-auth-role";
+import { PENDING_STATUSES } from "@/lib/senior-status";
 import { ROLE_LABELS } from "@/lib/rbac";
 import { type User } from "@supabase/supabase-js";
 import { HelpCenterModal } from "./help-center-modal";
@@ -104,11 +105,13 @@ export function Sidebar({ user, open, onClose }: { user: User | null; open?: boo
     if (!isHead) return;
     const supabaseClient = createClient();
 
+    const pendingStatuses = PENDING_STATUSES;
+
     const fetchCount = () => {
       supabaseClient
         .from('seniors')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'FOR_HEAD_APPROVAL')
+        .in('status', pendingStatuses)
         .then(({ count }) => {
           setPendingCount(count ?? 0);
         });

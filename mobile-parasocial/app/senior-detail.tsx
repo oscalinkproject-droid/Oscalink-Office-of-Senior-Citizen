@@ -171,7 +171,7 @@ export default function SeniorDetailScreen() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
-          const webUrl = process.env.EXPO_PUBLIC_WEB_URL || 'http://localhost:3000';
+          const webUrl = process.env.EXPO_PUBLIC_WEB_URL || 'https://osca-link.vercel.app';
           fetch(`${webUrl}/api/revalidate`, {
             method: 'POST',
             headers: {

@@ -52,7 +52,7 @@ export default function PreRegistrationsPage() {
     const { data, error } = await supabase
       .from('seniors')
       .select('id, registration_id, full_name, birthdate, contact_number, barangay, purok, status, created_at')
-      .eq('status', 'Pending')
+      .in('status', ['DRAFT', 'PRE_REGISTERED', 'PENDING'])
       .order('created_at', { ascending: false });
     if (!error && data) {
       setRecords(data as PreRegistration[]);
@@ -68,7 +68,7 @@ export default function PreRegistrationsPage() {
     supabase
       .from('seniors')
       .select('id, registration_id, full_name, birthdate, contact_number, barangay, purok, status, created_at')
-      .eq('status', 'Pending')
+      .in('status', ['DRAFT', 'PRE_REGISTERED', 'PENDING'])
       .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (cancelled) return;
@@ -160,9 +160,9 @@ if (!authorized) return null;
           <div className="h-16 w-16 rounded-2xl bg-surface-low border border-outline-variant/20 flex items-center justify-center">
             <ClipboardList size={28} className="text-outline" />
           </div>
-          <p className="text-sm font-bold text-foreground">No PENDING pre-registrations</p>
+          <p className="text-sm font-bold text-foreground">No pending pre-registrations</p>
           <p className="text-xs text-outline max-w-sm">
-            New applications submitted from the Mobile App will appear here for verification. Verified records are forwarded to the OSCA Head for approval.
+            Applications submitted from the Mobile App will appear here as drafts. Complete the record and forward it to the OSCA Head for approval.
           </p>
         </div>
       ) : (

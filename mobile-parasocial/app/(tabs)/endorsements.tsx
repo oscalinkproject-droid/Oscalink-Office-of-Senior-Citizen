@@ -16,7 +16,7 @@ import {
 } from '@/lib/sync';
 import { getCache, setCache } from '@/lib/cache';
 
-const UPLOAD_ENDPOINT = 'https://osca-link.vercel.app/api/upload';
+const UPLOAD_ENDPOINT = (process.env.EXPO_PUBLIC_WEB_URL || 'https://osca-link.vercel.app') + '/api/upload';
 
 interface RemoteEndorsement {
   id: string;
@@ -225,24 +225,33 @@ export default function EndorsementsScreen() {
     setUploading: (v: boolean) => void,
     label: string,
   ) {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission Required', `Allow access to your photo library to upload the ${label}.`);
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission Required', `Allow access to your photo library to upload the ${label}.`);
+        return;
+      }
+    } catch (e: any) {
+      console.warn('[Endorsements] Media library permission request failed (Expo Go fallback):', e?.message);
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.7,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.7,
+      });
 
-    if (result.canceled || !result.assets?.[0]?.uri) return;
+      if (result.canceled || !result.assets?.[0]?.uri) return;
 
-    setUploading(true);
-    const url = await uploadDocument(result.assets[0].uri, label.toLowerCase().replace(/\s+/g, '_'));
-    setUploading(false);
+      setUploading(true);
+      const url = await uploadDocument(result.assets[0].uri, label.toLowerCase().replace(/\s+/g, '_'));
+      setUploading(false);
 
-    if (url) setUrl(url);
+      if (url) setUrl(url);
+    } catch (e: any) {
+      console.error('[Endorsements] Image picker failed:', e);
+      Alert.alert('Error', 'Unable to open image picker. If you are using Expo Go, some features may be limited.');
+    }
   }
 
   async function handleRetry() {

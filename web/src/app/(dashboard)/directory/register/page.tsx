@@ -546,13 +546,13 @@ export default function RegisterSeniorPage() {
       }
       if (result.senior) {
         if (isDraft) {
-          toast('Pre-registration saved as draft. Complete it later to forward for Head Approval.', 'success');
+          toast('Draft saved. You can continue editing or forward to the OSCA Head when ready.', 'success');
           router.push('/directory/preregistration');
           router.refresh();
           return;
         }
         if (prefillId) {
-          toast('Pre-registration completed — reference number generated and forwarded to the OSCA Head.', 'success');
+          toast('Pre-registration forwarded to the OSCA Head for approval.', 'success');
         } else if (renewId) {
           toast('Re-registration submitted for OSCA Head review — a new OSCA ID will be issued upon approval.', 'success');
         } else {
@@ -1070,23 +1070,25 @@ export default function RegisterSeniorPage() {
           ) : (
             <div className="flex items-center gap-3 w-full sm:flex-row-reverse">
               <button
-                type="button"
-                onClick={() => { setSubmitMode('draft'); formRef.current?.dispatchEvent(new Event('submit')); }}
-                disabled={loading}
-                className="px-5 py-3 rounded-xl bg-surface-low border border-outline-variant/30 text-xs font-bold text-outline hover:text-foreground hover:bg-surface-high transition-all disabled:opacity-60 inline-flex items-center gap-2"
-              >
-                {loading ? 'Saving...' : 'Save as Pre-Registration'}
-              </button>
-              <button
                 type="submit"
                 disabled={loading}
                 className="px-6 py-3 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-all disabled:opacity-60 inline-flex items-center gap-2"
               >
                 {loading && <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white/30 border-t-white" />}
                 {loading
-                  ? (prefillId ? 'Saving & Generating...' : sr ? (renewId ? 'Creating New Application...' : 'Saving Changes...') : 'Uploading & Registering...')
-                  : (prefillId ? 'Save Changes & Generate Ref Number' : sr ? (renewId ? 'Re-register Senior (New OSCA ID)' : 'Resubmit for Approval') : 'Register Senior')}
+                  ? (prefillId ? 'Forwarding...' : sr ? (renewId ? 'Creating New Application...' : 'Saving Changes...') : 'Uploading & Registering...')
+                  : (prefillId ? 'Forward to OSCA Head' : sr ? (renewId ? 'Re-register Senior (New OSCA ID)' : 'Resubmit for Approval') : 'Register Senior')}
               </button>
+              {prefillId && (
+                <button
+                  type="button"
+                  onClick={() => { setSubmitMode('draft'); formRef.current?.dispatchEvent(new Event('submit')); }}
+                  disabled={loading}
+                  className="px-5 py-3 rounded-xl bg-surface-low border border-outline-variant/30 text-xs font-bold text-outline hover:text-foreground hover:bg-surface-high transition-all disabled:opacity-60 inline-flex items-center gap-2"
+                >
+                  {loading ? 'Saving...' : 'Save Draft'}
+                </button>
+              )}
             </div>
           )}
           <button type="button" onClick={() => router.back()} className="ml-auto px-6 py-3 rounded-xl text-xs font-bold text-outline hover:text-foreground transition-all">

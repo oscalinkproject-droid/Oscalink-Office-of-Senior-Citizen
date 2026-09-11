@@ -1,13 +1,15 @@
 ﻿"use client";
 
 import { useState, useEffect } from "react";
-import { decideForHeadApproval, getNextSeniorIdSequence } from "@/app/actions/seniors";
+import { decideForHeadApproval, getNextSeniorIdSequence, verifyOscaIdUnique } from "@/app/actions/seniors";
 import { createClient } from "@/lib/supabase";
+import { PENDING_STATUSES } from "@/lib/senior-status";
 
 interface Senior {
   id: string;
   full_name: string;
   registration_id: string;
+  reference_number?: string | null;
   id_number?: string | null;
   birthdate?: string | null;
   age?: number | null;
@@ -99,11 +101,12 @@ const isPdfUrl = (url?: string | null): boolean => {
   return u.endsWith('.pdf') || u.includes('/raw/upload/') || u.includes('.pdf?');
 };
 
-// Records in the Pending tab are awaiting head approval (FOR_HEAD_APPROVAL), so
-// the display identifier is always the REF-... number minted when OSCA Staff
-// completed the pre-registration.
+// Records in the Pending tab are awaiting head approval (PENDING_APPROVAL), so
+// the display identifier is the REF-... reference number minted when OSCA Staff
+// completed the pre-registration. Prefer reference_number (canonical) over
+// registration_id (backward-compatible alias).
 function displayIdentifier(s: Senior): string {
-  return s.registration_id || 'REF-PENDING';
+  return s.reference_number || s.registration_id || 'REF-PENDING';
 }
 
 function todayISO(): string {
@@ -127,15 +130,17 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
   const [acting, setActing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [reasonModal, setReasonModal] = useState<{ mode: 'disapprove' | 'disqualify' } | null>(null);
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [pii, setPii] = useState<{ seniorId: string; data: { contact_number?: string | null; address?: string | null } | null } | null>(null);
   // Viewer state for uploaded documents (image/pdf lightbox opened by OSCA Head).
   const [documentPreview, setDocumentPreview] = useState<{ url: string; label: string } | null>(null);
-  // ID issuance state — only used while reviewing a FOR_HEAD_APPROVAL record.
+  // ID issuance state — only used while reviewing a PENDING_APPROVAL record.
   const [issueDate, setIssueDate] = useState(todayISO());
   const [idNumber, setIdNumber] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
 
-  const pendingList = seniors.filter((s) => s.status === 'FOR_HEAD_APPROVAL');
+  const pendingList = seniors.filter((s) => (PENDING_STATUSES as readonly string[]).includes(s.status || ''));
   const disapprovedList = seniors.filter((s) => s.status === 'Disapproved');
   const disqualifiedList = seniors.filter((s) => s.status === 'Disqualified');
   const listForTab: Record<TabKey, Senior[]> = {
@@ -165,7 +170,7 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
         supabase
           .from('seniors')
           .select('*')
-          .in('status', ['FOR_HEAD_APPROVAL', 'Disapproved', 'Disqualified'])
+          .in('status', [...PENDING_STATUSES, 'Disapproved', 'Disqualified'])
           .order('created_at', { ascending: false })
           .then(({ data }) => {
             if (!data) return;
@@ -187,14 +192,34 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
   }, [supabase]);
 
   // Re-mint a preview OSCA ID whenever the issue date or selected record changes.
+  // Verify uniqueness against the database and regenerate if needed.
   useEffect(() => {
-    if (selected?.status !== 'FOR_HEAD_APPROVAL') return;
+    if (selected?.status == null || !(PENDING_STATUSES as readonly string[]).includes(selected.status)) return;
     let cancelled = false;
     const d = datePartFromISO(issueDate);
-    getNextSeniorIdSequence(d).then((res) => {
-      if (cancelled) return;
-      setIdNumber(res && res.success && res.sequence ? `OSC-${d}-${res.sequence}` : `OSC-${d}-####`);
-    });
+
+    const generateUnique = async () => {
+      let attempts = 0;
+      while (attempts < 20) {
+        const res = await getNextSeniorIdSequence(d);
+        if (cancelled) return;
+        if (res?.success && res.sequence) {
+          const candidate = `OSC-${d}-${res.sequence}`;
+          const { unique } = await verifyOscaIdUnique(candidate);
+          if (cancelled) return;
+          if (unique) {
+            setIdNumber(candidate);
+            return;
+          }
+        }
+        attempts++;
+      }
+      // Fallback: show the last generated ID
+      const fallback = `OSC-${d}-1000`;
+      if (!cancelled) setIdNumber(fallback);
+    };
+
+    generateUnique();
     return () => { cancelled = true; };
   }, [selected?.id, selected?.status, issueDate]);
 
@@ -212,7 +237,14 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
       setMessage({ type: 'error', text: 'OSCA ID must follow the format OSC-YYYYMMDD-#### before approving.' });
       return;
     }
+    // Verify uniqueness against the database before saving
     setActing(id);
+    const { unique } = await verifyOscaIdUnique(candidate);
+    if (!unique) {
+      setMessage({ type: 'error', text: `OSCA ID ${candidate} already exists. Click "Regenerate" to get a new unique ID.` });
+      setActing(null);
+      return;
+    }
     const result = await decideForHeadApproval(id, 'approve', { idNumber: candidate, idIssueDate: issueDate });
     if (result?.error) {
       setMessage({ type: 'error', text: result.error });
@@ -254,7 +286,7 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
     setActing(null);
   };
 
-  const isPending = selected?.status === 'FOR_HEAD_APPROVAL';
+  const isPending = selected?.status != null && (PENDING_STATUSES as readonly string[]).includes(selected.status);
 
   return (
     <div className="space-y-6">
@@ -448,41 +480,37 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
                   </div>
                 </section>
 
-                {/* ID Issuance — only while approving a FOR_HEAD_APPROVAL record */}
+                {/* ID Issuance — editable date picker with auto-generated unique OSCA ID */}
                 {isPending && (
                   <section className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-2">
                       <span className="material-symbols-outlined text-slate-400 text-base">badge</span>
-                      ID Issuance (OSC-YYYYMMDD-####)
+                      ID Issuance
                     </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                          Issue Date
-                        </label>
-                        <input
-                          type="date"
-                          value={issueDate}
-                          onChange={(e) => setIssueDate(e.target.value || todayISO())}
-                          className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/40"
-                        />
+                    {selected.reference_number && (
+                      <div className="mb-3 p-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Applicant Reference Number</p>
+                        <p className="text-sm font-mono font-bold text-blue-800 mt-0.5">{selected.reference_number}</p>
                       </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                          OSCA ID Number
-                        </label>
-                        <input
-                          type="text"
-                          value={idNumber}
-                          onChange={(e) => setIdNumber(e.target.value.toUpperCase())}
-                          placeholder="OSC-YYYYMMDD-####"
-                          className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 font-mono text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/40"
-                        />
-                      </div>
+                    )}
+                    <div className="space-y-1.5 mb-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        Issuance Date
+                      </label>
+                      <input
+                        type="date"
+                        value={issueDate}
+                        onChange={(e) => setIssueDate(e.target.value || todayISO())}
+                        className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                      />
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Generated OSCA ID</p>
+                      <p className="text-sm font-mono font-bold text-emerald-800 mt-0.5">{idNumber || 'Generating...'}</p>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
                       <span className="material-symbols-outlined text-xs">info</span>
-                      Auto-generated from the issue date. Approving finalizes the record with this OSCA ID.
+                      Select the issuance date to auto-generate a unique OSCA ID. Click "Approve - Issue ID" to confirm.
                     </p>
                   </section>
                 )}
@@ -513,7 +541,7 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
                     <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500">Head Decision</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
-                        onClick={() => handleApprove(selected.id)}
+                        onClick={() => setApproveModalOpen(true)}
                         disabled={acting === selected.id}
                         className="py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-medium shadow-sm transition-colors flex items-center justify-center gap-2"
                       >
@@ -553,6 +581,103 @@ export function ApprovalsClient({ seniors: initialSeniors, headProfile }: Approv
               Select a record from the list to review
             </div>
           )}
+        </div>
+      )}
+
+      {/* Approve confirmation modal */}
+      {approveModalOpen && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-surface-lowest rounded-2xl border border-outline-variant/30 shadow-xl max-w-lg w-full mx-4 p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <span className="material-symbols-outlined text-emerald-400 text-lg">verified</span>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Approve Pre-Registration</p>
+                <p className="text-[11px] text-outline mt-0.5">{selected.full_name}</p>
+              </div>
+            </div>
+
+            {selected.reference_number && (
+              <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Applicant Reference Number</p>
+                <p className="text-sm font-mono font-bold text-blue-800 mt-0.5">{selected.reference_number}</p>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Issuance Date
+                </label>
+                <input
+                  type="date"
+                  value={issueDate}
+                  onChange={(e) => setIssueDate(e.target.value || todayISO())}
+                  className="w-full bg-white border border-slate-200 rounded-lg py-2 px-3 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  OSCA ID Number (auto-generated)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={idNumber}
+                    readOnly
+                    placeholder="OSC-YYYYMMDD-####"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 font-mono text-xs text-slate-900 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={regenerating}
+                    onClick={async () => {
+                      setRegenerating(true);
+                      try {
+                        const d = datePartFromISO(issueDate);
+                        let attempts = 0;
+                        while (attempts < 20) {
+                          const res = await getNextSeniorIdSequence(d);
+                          if (res?.success && res.sequence) {
+                            const candidate = `OSC-${d}-${res.sequence}`;
+                            const { unique } = await verifyOscaIdUnique(candidate);
+                            if (unique) {
+                              setIdNumber(candidate);
+                              return;
+                            }
+                          }
+                          attempts++;
+                        }
+                      } finally {
+                        setRegenerating(false);
+                      }
+                    }}
+                    className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 border border-slate-200 text-[10px] font-bold uppercase tracking-widest text-slate-600 transition-colors"
+                  >
+                    {regenerating ? 'Generating...' : 'Regenerate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 flex items-center gap-1">
+              <span className="material-symbols-outlined text-xs">info</span>
+              The OSCA ID is auto-generated with a unique random suffix. The reference number is preserved for mobile-app tracking.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setApproveModalOpen(false)} className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-outline hover:text-foreground transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={() => { setApproveModalOpen(false); handleApprove(selected.id); }}
+                disabled={acting === selected.id || !idNumber}
+                className="px-5 py-2 text-[10px] font-bold uppercase tracking-widest text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+              >
+                {acting === selected.id ? 'Approving...' : 'Confirm Approve'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

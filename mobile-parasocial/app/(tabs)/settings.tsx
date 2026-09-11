@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/constants';
 import { getCache, setCache } from '@/lib/cache';
 
-const UPLOAD_ENDPOINT = 'https://osca-link.vercel.app/api/upload';
+const UPLOAD_ENDPOINT = (process.env.EXPO_PUBLIC_WEB_URL || 'https://osca-link.vercel.app') + '/api/upload';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -72,21 +72,30 @@ export default function SettingsScreen() {
   }
 
   async function pickImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission Required', 'Allow access to your photo library to change your profile picture.');
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission Required', 'Allow access to your photo library to change your profile picture.');
+        return;
+      }
+    } catch (e: any) {
+      console.warn('[Settings] Media library permission request failed (Expo Go fallback):', e?.message);
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
 
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      await uploadImage(result.assets[0].uri);
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        await uploadImage(result.assets[0].uri);
+      }
+    } catch (e: any) {
+      console.error('[Settings] Image picker failed:', e);
+      Alert.alert('Error', 'Unable to open image picker. If you are using Expo Go, some features may be limited.');
     }
   }
 

@@ -26,7 +26,7 @@ export default async function ArchivePage() {
     supabase
       .from('seniors')
       .select(RECORD_FIELDS)
-      .in('status', ['Transferred', 'Cancelled', 'Disqualified', 'Inactive'])
+      .in('status', ['Transferred', 'Cancelled', 'Inactive'])
       .order('transferred_at', { ascending: false, nullsFirst: false }),
     supabase
       .from('seniors')

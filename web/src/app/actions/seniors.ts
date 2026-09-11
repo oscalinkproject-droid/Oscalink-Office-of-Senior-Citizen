@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { validateBarangay, GeofenceError } from "@/lib/geofencing";
 import { createSeniorSchema, updateSeniorSchema } from "@/lib/validation";
 import { normalizeRole } from "@/lib/rbac";
+import { PENDING_STATUSES } from "@/lib/senior-status";
 import { ZodError } from "zod";
 
 export async function createSenior(formData: FormData) {
@@ -76,9 +77,8 @@ export async function createSenior(formData: FormData) {
   ];
   const allDocsProvided = docUrls.every((u) => u && u.trim() !== '');
 
-  // Choose status: complete docs → PENDING_HEAD_APPROVAL, missing docs → PRE_REGISTERED
-  // Choose status: complete docs → PENDING_HEAD_APPROVAL, missing docs → PRE_REGISTERED
-  const status = allDocsProvided ? 'PENDING_HEAD_APPROVAL' : 'PRE_REGISTERED';
+  // Choose status: complete docs → PENDING_APPROVAL, missing docs → DRAFT
+  const status = allDocsProvided ? 'PENDING_APPROVAL' : 'DRAFT';
 
   // Atomic insert with retry on unique violation
   const MAX_RETRIES = 5;
@@ -92,6 +92,7 @@ export async function createSenior(formData: FormData) {
 
     const data = {
       registration_id: finalRegistrationId,
+      reference_number: finalRegistrationId,
       full_name: fullName || (formData.get('full_name') as string),
       middle_name: middleName || null,
       suffix: suffix || null,
@@ -388,8 +389,8 @@ const padIdSequence = (n: number) => String(n).padStart(4, '0');
 // (PostgreSQL error 23505) are handled by the retry loop in approveSenior.
 // This avoids the check-then-insert race that plagues sequential IDs.
 function randomIdSuffix(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
-  return Array.from(bytes, (b) => String(b % 10)).join('');
+  const n = Math.floor(1000 + Math.random() * 9000);
+  return String(n);
 }
 
 // Returns a candidate OSCA ID with a random 4-digit numeric suffix.
@@ -401,8 +402,24 @@ export async function getNextSeniorIdSequence(datePart?: string) {
   try {
     const supabase = await createClient();
     if (datePart) {
-      const nextId = nextUniqueOscaId(datePart);
-      return { success: true, sequence: nextId.slice(-4) };
+      // Generate a random 4-digit suffix (1000-9999) and verify uniqueness
+      // against the database. Loop until a free ID is found.
+      let candidate: string;
+      let attempts = 0;
+      do {
+        candidate = nextUniqueOscaId(datePart);
+        attempts++;
+        const { data: existing } = await supabase
+          .from('seniors')
+          .select('id_number')
+          .eq('id_number', candidate)
+          .maybeSingle();
+        if (!existing) {
+          return { success: true, sequence: candidate.slice(-4) };
+        }
+      } while (attempts < 20);
+      // Fallback: return the last candidate and let the caller handle conflict
+      return { success: true, sequence: candidate!.slice(-4) };
     }
     const { count } = await supabase
       .from('seniors')
@@ -412,6 +429,20 @@ export async function getNextSeniorIdSequence(datePart?: string) {
     return { success: true, sequence: padIdSequence(next) };
   } catch {
     return { error: 'Failed to generate ID sequence' };
+  }
+}
+
+export async function verifyOscaIdUnique(oscaId: string) {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from('seniors')
+      .select('id_number')
+      .eq('id_number', oscaId)
+      .maybeSingle();
+    return { unique: !data };
+  } catch {
+    return { unique: false };
   }
 }
 
@@ -771,7 +802,7 @@ const toNullableText = (value: FormDataEntryValue | null): string | null => {
 };
 
 // OSCA Staff edit a declined (Disapproved / Disqualified) application and
-// resubmit it. The record's status is flipped back to "Pending" so it returns
+// resubmit it. The record's status is flipped back to "DRAFT" so it returns
 // to the OSCA Head review queue while preserving the same registration_id and
 // the previously uploaded documents unless replaced.
 export async function resubmitApplication(id: string, formData: FormData) {
@@ -889,7 +920,7 @@ export async function resubmitApplication(id: string, formData: FormData) {
 
   // Full validation using the same schema as initial registration (the record's
   // registration_id is preserved, so remaining required fields are re-checked).
-  const validationPayload = { ...data, registration_id: senior.registration_id || '', status: 'Pending' };
+  const validationPayload = { ...data, registration_id: senior.registration_id || '', status: 'DRAFT' };
   try {
     createSeniorSchema.parse(validationPayload);
   } catch (e) {
@@ -902,7 +933,7 @@ export async function resubmitApplication(id: string, formData: FormData) {
   const now = new Date().toISOString();
   const updates: Record<string, unknown> = {
     ...data,
-    status: 'Pending',
+    status: 'DRAFT',
     decision_reason: null,
     decision_note: null,
     disqualification_indicators: null,
@@ -936,10 +967,9 @@ export async function resubmitApplication(id: string, formData: FormData) {
   return { success: true };
 }
 
-// OSCA Staff completes a mobile pre-registration (status 'Pending'): the partial
-// record is filled out, a unique REF-YYYYMMDD-NNNN reference number is generated,
-// the reference is linked to the record for mobile login, and the status moves
-// to 'Pending OSCA' (for final) or 'Pending' (for draft) so it appears in the OSCA Head's approvals queue.
+// OSCA Staff completes a mobile pre-registration: the partial record is filled
+// out, a unique REF-YYYYMMDD-NNNN reference number is generated, and the status
+// moves to 'PENDING_APPROVAL' (forward) or 'DRAFT' (save).
 export async function completePreRegistration(id: string, formData: FormData) {
   const supabase = await createClient();
 
@@ -970,8 +1000,8 @@ export async function completePreRegistration(id: string, formData: FormData) {
   }
 
   const currentStatus = (senior.status || '').toLowerCase();
-  if (currentStatus !== 'pending') {
-    return { error: 'Only PENDING pre-registrations can be completed and forwarded for head approval.' };
+  if (currentStatus !== 'pending' && currentStatus !== 'pre_registered' && currentStatus !== 'draft') {
+    return { error: 'Only Pending, Draft, or Pre-Registered records can be edited and forwarded.' };
   }
 
   // Check if this is a draft save
@@ -1079,7 +1109,7 @@ export async function completePreRegistration(id: string, formData: FormData) {
   // Generate a fresh unique REF-YYYYMMDD-NNNN reference number and validate the
   // completed payload with the same schema used for a New Record.
   let registrationId = generateRefNumber();
-  const targetStatus = isDraft ? 'Pending' : 'Pending OSCA';
+  const targetStatus = isDraft ? 'DRAFT' : 'PENDING_APPROVAL';
   const validationPayload = { ...data, registration_id: registrationId, status: targetStatus };
   try {
     createSeniorSchema.parse(validationPayload);
@@ -1102,7 +1132,8 @@ export async function completePreRegistration(id: string, formData: FormData) {
     const updates: Record<string, unknown> = {
       ...data,
       registration_id: registrationId,
-      status: isDraft ? 'Pending' : 'Pending OSCA',
+      reference_number: registrationId,
+      status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL',
       decision_reason: null,
       decision_note: null,
       disqualification_indicators: null,
@@ -1156,7 +1187,7 @@ export async function completePreRegistration(id: string, formData: FormData) {
     console.error('[PREREG] Auth user creation error:', err);
   }
 
-  await logAudit(supabase, user, role, 'senior_completed_preregistration', id, { ...data, registration_id: registrationId, status: isDraft ? 'Pending' : 'Pending OSCA' });
+  await logAudit(supabase, user, role, 'senior_completed_preregistration', id, { ...data, registration_id: registrationId, status: isDraft ? 'DRAFT' : 'PENDING_APPROVAL' });
 
   revalidatePath('/directory');
   revalidatePath('/directory/preregistration');
@@ -1173,11 +1204,10 @@ export async function completePreRegistration(id: string, formData: FormData) {
   };
 }
 
-// OSCA Staff one-click "Save / Verify" for a PENDING mobile pre-registration row.
-// The partial record is kept as-is: a REF-YYYYMMDD-NNNN reference number is
-// minted, the status moves to 'FOR_HEAD_APPROVAL' (forwarding to the OSCA Head's
-// approval queue), and the record automatically drops off the Staff's Pending
-// list (which only queries status 'Pending').
+// OSCA Staff one-click "Verify & Forward" for a Pending/Draft/Pre-Registered row.
+// A REF-YYYYMMDD-NNNN reference number is minted, the status moves to
+// 'PENDING_APPROVAL' (forwarding to the OSCA Head's approval queue),
+// and the record drops off the Staff's Pre-Registrations list.
 export async function verifyAndForwardPreRegistration(id: string) {
   try {
     const supabase = await createClient();
@@ -1209,8 +1239,8 @@ export async function verifyAndForwardPreRegistration(id: string) {
     }
 
     const currentStatus = (senior.status || '').toLowerCase();
-    if (currentStatus !== 'pending') {
-      return { error: 'Only PENDING pre-registrations can be verified and forwarded for head approval.' };
+    if (currentStatus !== 'pending' && currentStatus !== 'pre_registered' && currentStatus !== 'draft') {
+      return { error: 'Only Pending, Draft, or Pre-Registered records can be verified and forwarded.' };
     }
 
     if (!senior.full_name?.trim() || !senior.barangay?.trim()) {
@@ -1260,7 +1290,8 @@ export async function verifyAndForwardPreRegistration(id: string) {
       const now = new Date().toISOString();
       const updates: Record<string, unknown> = {
         registration_id: registrationId,
-        status: 'Pending OSCA',
+        reference_number: registrationId,
+        status: 'PENDING_APPROVAL',
         age,
         classification,
         decision_reason: null,
@@ -1317,7 +1348,7 @@ export async function verifyAndForwardPreRegistration(id: string) {
     }
 
     await logAudit(supabase, user, role, 'senior_completed_preregistration', id, {
-      status: 'Pending OSCA',
+      status: 'PENDING_APPROVAL',
       registration_id: registrationId,
     });
 
@@ -1332,7 +1363,7 @@ export async function verifyAndForwardPreRegistration(id: string) {
   }
 }
 
-// OSCA Head decides on a completed pre-registration (status 'FOR_HEAD_APPROVAL')
+// OSCA Head decides on a completed pre-registration (status 'PENDING_APPROVAL')
 // forwarded by OSCA Staff. The Head is a read-only reviewer, but issues the final
 // OSCA ID at approval time:
 //   approve     → status 'APPROVED', mints id_number OSC-YYYYMMDD-####, records
@@ -1365,7 +1396,7 @@ export async function decideForHeadApproval(
 
     const { data: senior } = await supabase
       .from('seniors')
-      .select('id, status, full_name, registration_id, auth_id, id_number, osca_approved')
+      .select('id, status, full_name, registration_id, reference_number, auth_id, id_number, osca_approved')
       .eq('id', id)
       .single();
 
@@ -1373,8 +1404,8 @@ export async function decideForHeadApproval(
       return { error: 'Pre-registration record not found.' };
     }
 
-    if ((senior.status || '').toUpperCase() !== 'FOR_HEAD_APPROVAL') {
-      return { error: 'Only records awaiting head approval (FOR_HEAD_APPROVAL) can be decided.' };
+    if (!(PENDING_STATUSES as readonly string[]).includes((senior.status || ''))) {
+      return { error: 'Only records with a pending status can be decided by the OSCA Head.' };
     }
 
     const now = new Date().toISOString();
@@ -1404,10 +1435,11 @@ export async function decideForHeadApproval(
 
       // Auto-convert a pending REF- registration ID to the official OSC- ID so the
       // registration_id no longer advertises an unresolved/pending reference.
+      // The reference_number column preserves the original REF-... for tracking.
       let finalRegistrationId: string | null = null;
       const pendingRegId = senior.registration_id;
       if (pendingRegId && /^REF-\d{8}-\d{4}$/.test(pendingRegId)) {
-        finalRegistrationId = `OSC-${pendingRegId.slice(4, 12)}-${pendingRegId.slice(-4)}`;
+        finalRegistrationId = idNumber;
       }
 
       const updates: Record<string, unknown> = {
@@ -1500,6 +1532,7 @@ export async function decideForHeadApproval(
     );
 
     if (senior.auth_id) {
+      const reason = (options.reason || '').trim();
       const notification =
         decision === 'approve'
           ? {
@@ -1510,12 +1543,12 @@ export async function decideForHeadApproval(
           : decision === 'disapprove'
             ? {
                 title: '⚠️ Application Status: Disapproved (Needs Action)',
-                message: 'Magandang araw. Mayroong kulang o kailangang ayusin sa iyong isinumiteng requirements. Mangyaring pumunta sa OSCA Office para sa kinakailangang pagwawasto.',
+                message: `Magandang araw, ${senior.full_name}. Your application requires additional corrections/requirements: ${reason || 'No reason provided.'} Mangyaring pumunta sa OSCA Office para sa kinakailangang pagwawasto.`,
                 type: 'warning' as const,
               }
             : {
                 title: '❌ Application Status: Disqualified',
-                message: 'Magandang araw. Paumanhin, ngunit hindi nakapasa ang inyong aplikasyon ayon sa kwalipikasyon ng OSCA. Para sa karagdagang katanungan, maaari kayong bumisita sa OSCA Office.',
+                message: `Magandang araw, ${senior.full_name}. Your application was marked as disqualified: ${reason || 'No reason provided.'} Para sa karagdagang katanungan, maaari kayong bumisita sa OSCA Office.`,
                 type: 'warning' as const,
               };
       await supabase.from('notifications').insert({
@@ -1530,6 +1563,7 @@ export async function decideForHeadApproval(
     revalidatePath('/approvals');
     revalidatePath('/directory');
     revalidatePath('/dashboard');
+    revalidatePath('/declined');
     return {
       success: true,
       status: decision === 'approve' ? 'APPROVED' : decision === 'disapprove' ? 'Disapproved' : 'Disqualified',

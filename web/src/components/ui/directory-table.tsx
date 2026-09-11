@@ -15,7 +15,7 @@ interface Senior {
   age: number;
   barangay: string;
   purok?: string;
-  status: "Active" | "Pending" | "Pending Barangay" | "Pending OSCA" | "Pending Mayor" | "FOR_HEAD_APPROVAL" | "Archived" | "Transferred" | "Deceased" | "Inactive" | "Cancelled" | "Disqualified" | "Disapproved";
+  status: "Active" | "Pending" | "Pending Barangay" | "Pending OSCA" | "Pending Mayor" | "FOR_HEAD_APPROVAL" | "PENDING_APPROVAL" | "DRAFT" | "PRE_REGISTERED" | "Archived" | "Transferred" | "Deceased" | "Inactive" | "Cancelled" | "Disqualified" | "Disapproved";
   registrationId: string;
   progress: number;
   lastCheck: string;
